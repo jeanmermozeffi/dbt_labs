@@ -1,0 +1,46 @@
+# Nom du projet dbt
+name: 'dbt_labs'
+version: '1.0.0'
+config-version: 2
+
+# Profil à utiliser pour se connecter à la base de données
+profile: 'dbt_labs'
+
+# Dossiers principaux du projet
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["data"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+# Dossier où dbt va générer les fichiers compilés
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# Configuration par défaut des modèles
+models:
+  dbt_labs:
+    # Configuration par défaut pour tous les modèles
+    +materialized: view
+
+    # Exemple de configuration par sous-dossiers
+    staging:
+      +materialized: view
+      +schema: staging
+
+    marts:
+      +materialized: table
+      +schema: marts
+
+# Configuration des seeds
+seeds:
+  dbt_labs:
+    +schema: seeds
+
+# Configuration des snapshots
+snapshots:
+  dbt_labs:
+    +target_schema: snapshots

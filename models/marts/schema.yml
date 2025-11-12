@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: customer_orders
+    description: "Vue agrégée des commandes par client"
+    columns:
+      - name: customer_id
+        description: "Identifiant unique du client"
+        tests:
+          - unique
+          - not_null
+      - name: customer_name
+        description: "Nom du client"
+      - name: customer_email
+        description: "Email du client"
+      - name: total_orders
+        description: "Nombre total de commandes du client"
+      - name: total_amount
+        description: "Montant total des commandes du client"
+      - name: first_order_date
+        description: "Date de la première commande"
+      - name: last_order_date
+        description: "Date de la dernière commande"

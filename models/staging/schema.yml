@@ -1,0 +1,70 @@
+version: 2
+
+# Définition des sources de données
+sources:
+  - name: raw
+    description: "Schéma contenant les données brutes"
+    database: votre_database  # À modifier selon votre configuration
+    schema: raw
+    tables:
+      - name: customers
+        description: "Table des clients bruts"
+        columns:
+          - name: id
+            description: "Identifiant unique du client"
+            tests:
+              - unique
+              - not_null
+          - name: name
+            description: "Nom du client"
+          - name: email
+            description: "Email du client"
+
+      - name: orders
+        description: "Table des commandes brutes"
+        columns:
+          - name: id
+            description: "Identifiant unique de la commande"
+            tests:
+              - unique
+              - not_null
+          - name: customer_id
+            description: "Référence au client"
+          - name: order_date
+            description: "Date de la commande"
+          - name: amount
+            description: "Montant de la commande"
+
+# Documentation des modèles staging
+models:
+  - name: stg_customers
+    description: "Modèle de staging pour les clients"
+    columns:
+      - name: customer_id
+        description: "Identifiant unique du client"
+        tests:
+          - unique
+          - not_null
+      - name: customer_name
+        description: "Nom du client"
+      - name: customer_email
+        description: "Email du client"
+
+  - name: stg_orders
+    description: "Modèle de staging pour les commandes"
+    columns:
+      - name: order_id
+        description: "Identifiant unique de la commande"
+        tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: "Référence au client"
+        tests:
+          - relationships:
+              to: ref('stg_customers')
+              field: customer_id
+      - name: order_date
+        description: "Date de la commande"
+      - name: order_amount
+        description: "Montant de la commande"
