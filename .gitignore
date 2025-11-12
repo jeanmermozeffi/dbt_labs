@@ -213,3 +213,10 @@ logs/
 *.duckdb
 *.duckdb.wal
 profiles.yml
+
+
+# Ruff stuff:
+
+# PyPI configuration file
+.idea/
+.DS_Store
