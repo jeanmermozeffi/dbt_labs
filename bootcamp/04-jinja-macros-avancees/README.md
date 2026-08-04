@@ -157,8 +157,11 @@ l'environnement. En prod, on veut des schemas propres (`marts`,
 change le comportement qu'en prod (`target.name == 'prod'`) ; en dev,
 le comportement par defaut de dbt (prefixe + suffixe) est conserve —
 c'est ce que vous observez dans ce projet : les tables vont dans
-`CIC_DWH_marts`, `CIC_DWH_staging`, etc. (`CIC_DWH` = votre schema de
-dev + suffixe de dossier).
+`dbt_jeff_marts`, `dbt_jeff_staging`, etc. — ou `dbt_jeff` est la
+valeur de `POSTGRES_SCHEMA` de VOTRE `.env`, et `marts`/`staging` le
+`+schema:` du dossier dans `dbt_project.yml`. Chaque developpeur
+ayant sa propre valeur, deux personnes peuvent travailler sur la meme
+base sans jamais s'ecraser.
 
 **Note sur `-` dans `{%- ... -%}`** : controle du whitespace Jinja.
 `{%-` supprime les espaces/retours a la ligne AVANT la balise, `-%}`

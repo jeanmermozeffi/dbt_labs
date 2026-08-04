@@ -293,13 +293,13 @@ Reprenons **exactement** la sortie qui vous a fait tiquer, annotee :
 >   votre garde-fou contre un `--full-refresh` en prod.
 
 ```
-11:02:05  1 of 2 START seed file CIC_DWH_seeds.countries ......... [RUN]
-11:02:05  1 of 2 OK loaded seed file CIC_DWH_seeds.countries ..... [INSERT 7 in 0.05s]
+11:02:05  1 of 2 START seed file dbt_jeff_seeds.countries ......... [RUN]
+11:02:05  1 of 2 OK loaded seed file dbt_jeff_seeds.countries ..... [INSERT 7 in 0.05s]
 ```
 > - `1 of 2` : noeud 1 sur les 2 selectionnes. Ce n'est PAS un ordre
 >   chronologique garanti — avec 4 threads, `2 of 2` peut finir avant
 >   `1 of 2` (c'est visible dans votre propre sortie).
-> - `CIC_DWH_seeds.countries` = **`schema.table` reellement ecrits en
+> - `dbt_jeff_seeds.countries` = **`schema.table` reellement ecrits en
 >   base**. C'est l'information la plus importante de la ligne, et la
 >   source de confusion n°1 : voir la section 5 ci-dessous.
 > - `[INSERT 7 in 0.05s]` : le **statut SQL renvoye par Postgres**,
@@ -345,17 +345,17 @@ dans `logs/dbt.log`, meme si vous avez ferme le terminal.
 ## 5. "Ou sont parties mes tables ?" — la resolution de schema
 
 C'est LA question qui bloque tout le monde au premier `dbt seed`.
-Vous avez ecrit `POSTGRES_SCHEMA=CIC_DWH` dans `.env`, et dbt
-annonce `CIC_DWH_seeds.countries`. D'ou sort ce suffixe ?
+Vous avez ecrit `POSTGRES_SCHEMA=dbt_jeff` dans `.env`, et dbt
+annonce `dbt_jeff_seeds.countries`. D'ou sort ce suffixe ?
 
 Trois ingredients se combinent :
 
 ```
-1. .env                     POSTGRES_SCHEMA=CIC_DWH
+1. .env                     POSTGRES_SCHEMA=dbt_jeff
         |
         v
 2. ~/.dbt/profiles.yml      schema: "{{ env_var('POSTGRES_SCHEMA') }}"
-                            -> target.schema = "CIC_DWH"     (le schema de BASE)
+                            -> target.schema = "dbt_jeff"     (le schema de BASE)
         |
         v
 3. dbt_project.yml          seeds:   +schema: seeds          (le schema CUSTOM)
@@ -366,7 +366,7 @@ Trois ingredients se combinent :
 4. macros/generate_schema_name.sql   decide comment 2 et 3 se combinent
         |
         v
-   RESULTAT en dev :  CIC_DWH_seeds, CIC_DWH_staging, CIC_DWH_marts
+   RESULTAT en dev :  dbt_jeff_seeds, dbt_jeff_staging, dbt_jeff_marts
    RESULTAT en prod :  seeds, staging, marts     (sans prefixe)
 ```
 
@@ -379,8 +379,31 @@ La regle appliquee par
 - `+schema` declare et `target = prod` -> **le custom seul**
   (`marts`) : des noms propres en production ;
 - `+schema` declare et tout autre target -> **`target.schema` +
-  `_` + custom** (`CIC_DWH_marts`) : chaque developpeur travaille
+  `_` + custom** (`dbt_jeff_marts`) : chaque developpeur travaille
   dans son propre espace, sans se marcher dessus.
+
+`POSTGRES_SCHEMA` designe donc **votre bac a sable personnel**, pas
+l'entrepot : convention `dbt_<prenom>`. Et il n'a **pas de valeur par
+defaut** dans `profiles.yml`, volontairement — un defaut partage
+(`dbt_dev`) ferait silencieusement collisionner deux developpeurs
+distraits, alors qu'une variable manquante echoue net :
+
+```
+Parsing Error
+  Env var required but not provided: 'POSTGRES_SCHEMA'
+```
+
+Pour verifier a quel schema un noeud est destine **sans rien
+executer** :
+
+```bash
+dbt ls --resource-type model --output json --output-keys "name schema"
+{"schema": "dbt_jeff_marts", "name": "dim_customers"}
+{"schema": "dbt_jeff_staging", "name": "stg_orders"}
+```
+
+C'est la facon la plus rapide de repondre a "ou ca va atterrir ?"
+avant un run, et de comparer deux targets (`--target prod`).
 
 Verifiez a tout moment ce qui existe reellement :
 
@@ -394,8 +417,8 @@ docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" dbt_labs_postgres \
 ```
 
 Sur ce projet, apres un `dbt build` complet, vous devez voir 4
-schemas : `raw` (votre source simulee), `CIC_DWH_seeds`,
-`CIC_DWH_staging`, `CIC_DWH_marts`.
+schemas : `raw` (votre source simulee), `dbt_jeff_seeds`,
+`dbt_jeff_staging`, `dbt_jeff_marts`.
 
 **Le reflexe general** : ne cherchez jamais vos tables "au jugé".
 Le nom exact est ecrit dans la sortie de dbt (`schema.table` apres

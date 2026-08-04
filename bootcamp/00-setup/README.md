@@ -92,10 +92,29 @@ construction).
 POSTGRES_HOST=127.0.0.1
 POSTGRES_PORT=5432
 POSTGRES_DB=dbt_labs
-POSTGRES_SCHEMA=votre_schema_dev
+POSTGRES_SCHEMA=dbt_jeff       # <- VOTRE prenom, pas celui-ci
 POSTGRES_USER=admin_dbt_labs
 POSTGRES_PASSWORD=...
 ```
+
+**`POSTGRES_SCHEMA` merite une explication**, parce que c'est la
+variable la plus mal comprise du lot. Ce n'est **pas** le nom de
+votre entrepot : c'est le nom de **votre bac a sable personnel**.
+Convention dbt Labs : `dbt_<prenom>`.
+
+Toutes vos tables de dev en heriteront comme prefixe
+(`dbt_jeff_staging`, `dbt_jeff_marts`...), ce qui garantit trois
+choses :
+
+1. deux developpeurs sur la meme base ne s'ecrasent jamais ;
+2. votre `dbt run` ne peut pas toucher les tables de production ;
+3. vous pouvez jeter tout votre travail d'un
+   `drop schema dbt_jeff_marts cascade` sans rien risquer.
+
+Mettre ici un nom d'entrepot (`CIC_DWH`, `ANALYTICS`...) compile
+parfaitement, mais brouille cette intention : on ne sait plus, en
+lisant un nom de schema, si on regarde un espace de travail jetable
+ou une ressource partagee.
 
 `~/.dbt/profiles.yml` (copiez [`profiles.yml.example`](../../profiles.yml.example)) —
 regardez bien : **aucun mot de passe en clair**, tout passe par
@@ -112,13 +131,38 @@ dbt_labs:
       user: "{{ env_var('POSTGRES_USER') }}"
       password: "{{ env_var('POSTGRES_PASSWORD') }}"
       dbname: "{{ env_var('POSTGRES_DB') }}"
-      schema: "{{ env_var('POSTGRES_SCHEMA', 'dbt_dev') }}"
+      schema: "{{ env_var('POSTGRES_SCHEMA') }}"
       threads: 4
 ```
 
 `env_var()` sans valeur par defaut **fait planter dbt** si la
 variable n'existe pas — c'est volontaire : mieux vaut un echec net a
 la compilation qu'un run silencieux avec un mauvais mot de passe.
+
+```
+Parsing Error
+  Env var required but not provided: 'POSTGRES_SCHEMA'
+```
+
+**Remarquez lesquelles ont un defaut et lesquelles n'en ont pas.**
+Ce n'est pas arbitraire :
+
+| Variable | Defaut | Pourquoi |
+|---|---|---|
+| `POSTGRES_HOST` | `localhost` | se tromper est visible immediatement (connexion refusee) |
+| `POSTGRES_PORT` | `5432` | idem |
+| `POSTGRES_USER` / `PASSWORD` / `DB` | **aucun** | un defaut ferait tenter une connexion avec de mauvais identifiants |
+| `POSTGRES_SCHEMA` | **aucun** | **c'est le cas le plus subtil** — voir ci-dessous |
+
+Un defaut du type `env_var('POSTGRES_SCHEMA', 'dbt_dev')` parait
+pratique, et c'est un piege : si deux developpeurs oublient de
+definir la variable, ils atterrissent **tous les deux** dans
+`dbt_dev_*` et s'ecrasent mutuellement, sans la moindre erreur. Le
+garde-fou du schema par developpeur disparait exactement au moment ou
+quelqu'un est distrait — c'est-a-dire quand on en a le plus besoin.
+
+Regle generale : **mettez un defaut quand se tromper est bruyant,
+jamais quand se tromper est silencieux.**
 
 Avant chaque commande dbt, chargez `.env` dans votre shell :
 
@@ -171,26 +215,26 @@ dbt debug     # doit finir par "All checks passed!"
 
 ## 6. Ou vont atterrir vos tables ? (a lire avant le premier run)
 
-Vous avez mis `POSTGRES_SCHEMA=CIC_DWH` dans `.env`. Pourtant, au
+Vous avez mis `POSTGRES_SCHEMA=dbt_jeff` dans `.env`. Pourtant, au
 premier `dbt seed`, dbt annonce :
 
 ```
-1 of 2 OK loaded seed file CIC_DWH_seeds.countries [INSERT 7 in 0.05s]
+1 of 2 OK loaded seed file dbt_jeff_seeds.countries [INSERT 7 in 0.05s]
                                 ^^^^^^^^^^^^^^^^^ d'ou sort ce suffixe ?
 ```
 
 Trois ingredients se combinent :
 
 ```
-1. .env                POSTGRES_SCHEMA=CIC_DWH
+1. .env                POSTGRES_SCHEMA=dbt_jeff
 2. profiles.yml        schema: "{{ env_var('POSTGRES_SCHEMA') }}"
-                       -> target.schema = "CIC_DWH"    (schema de BASE)
+                       -> target.schema = "dbt_jeff"    (schema de BASE)
 3. dbt_project.yml     seeds:   +schema: seeds         (schema CUSTOM)
                        staging: +schema: staging
                        marts:   +schema: marts
 4. macros/generate_schema_name.sql   combine 2 et 3
 
-   -> en dev  : CIC_DWH_seeds, CIC_DWH_staging, CIC_DWH_marts
+   -> en dev  : dbt_jeff_seeds, dbt_jeff_staging, dbt_jeff_marts
    -> en prod : seeds, staging, marts   (sans prefixe)
 ```
 
@@ -201,6 +245,36 @@ La logique de
 des noms de schemas propres ; partout ailleurs, un prefixe par
 developpeur pour que deux personnes puissent travailler sur la meme
 base sans s'ecraser.
+
+### "Je veux `seeds` et pas `dbt_jeff_seeds`" — la mauvaise question
+
+C'est la reaction de tout le monde en decouvrant le prefixe. Trois
+precisions avant de toucher quoi que ce soit :
+
+**1. Retirer `POSTGRES_SCHEMA` ne donne pas `seeds`.** Le prefixe
+vient de la macro, pas de la variable. Sans variable, dbt echoue
+(pas de valeur par defaut, section 4) ; avec un defaut, vous
+obtiendriez `dbt_dev_seeds` — toujours prefixe.
+
+**2. Seul `target=prod` produit les noms nus**, et c'est voulu :
+
+| Configuration | Schema obtenu |
+|---|---|
+| `POSTGRES_SCHEMA=dbt_jeff`, target `dev` | `dbt_jeff_seeds` |
+| `--target prod` | `seeds` |
+
+**3. Forcer les noms nus en local vous coute plus que ca ne rapporte.**
+
+| Methode | Ce que vous perdez |
+|---|---|
+| `dbt run --target prod` en local | La ligne `target='dev'` affichee a chaque run est votre dernier rempart avant un `--full-refresh` destructeur |
+| Modifier la macro pour ne plus prefixer en dev | Deux developpeurs sur la meme base s'ecrasent, sans erreur |
+| Supprimer les `+schema:` de `dbt_project.yml` | Tout atterrit a plat dans un seul schema : plus de separation staging/marts, et votre dev ne ressemble plus a votre prod |
+
+Le prefixe n'est pas une verrue de configuration : c'est le
+mecanisme qui rend votre environnement de dev **jetable**. Gardez-le,
+et choisissez simplement une valeur qui dit ce qu'elle est
+(`dbt_<prenom>`).
 
 Verifiez a tout moment ce qui existe reellement :
 
@@ -213,8 +287,8 @@ docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" dbt_labs_postgres \
 ```
 
 Apres un `dbt build` complet, vous devez voir 4 schemas : `raw`
-(votre source simulee), `CIC_DWH_seeds`, `CIC_DWH_staging`,
-`CIC_DWH_marts`.
+(votre source simulee), `dbt_jeff_seeds`, `dbt_jeff_staging`,
+`dbt_jeff_marts`.
 
 **Reflexe general** : ne cherchez jamais vos tables au jugé. Le nom
 exact `schema.table` est ecrit dans la sortie de dbt apres chaque

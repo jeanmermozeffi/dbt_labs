@@ -250,7 +250,7 @@ Et la question metier du cahier des charges :
 
 ```sql
 select product_name, category, items_sold, items_returned, return_rate
-from "CIC_DWH_marts".product_return_rates
+from "dbt_jeff_marts".product_return_rates
 where items_sold >= 5   -- seuil de significativite arbitraire mais explicite
 order by return_rate desc
 limit 5;

@@ -29,12 +29,12 @@ Got 1 result, configured to warn if != 0
 
   See test failures:
   --------------------------------------------------------------
-  select * from "dbt_labs"."CIC_DWH_dbt_test_failures"."assert_payments_reconcile_with_orders"
+  select * from "dbt_labs"."dbt_jeff_dbt_test_failures"."assert_payments_reconcile_with_orders"
   --------------------------------------------------------------
 ```
 
 ```sql
-select * from "CIC_DWH_dbt_test_failures".assert_payments_reconcile_with_orders;
+select * from "dbt_jeff_dbt_test_failures".assert_payments_reconcile_with_orders;
 ```
 
 ```
@@ -113,8 +113,8 @@ Exemple reel, execute sur ce projet :
 ```sql
 explain analyze
 select c.customer_id, count(o.order_id)
-from "CIC_DWH_marts".fct_orders o
-right join "CIC_DWH_marts".dim_customers c on c.customer_id = o.customer_id
+from "dbt_jeff_marts".fct_orders o
+right join "dbt_jeff_marts".dim_customers c on c.customer_id = o.customer_id
 group by c.customer_id;
 ```
 

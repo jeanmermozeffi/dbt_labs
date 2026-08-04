@@ -186,17 +186,17 @@ Concurrency: 4 threads (target='dev')
                parallele. target='dev' : verifiez toujours cette
                valeur avant une commande destructive.
 
-1 of 2 OK loaded seed file CIC_DWH_seeds.countries [INSERT 7 in 0.05s]
+1 of 2 OK loaded seed file dbt_jeff_seeds.countries [INSERT 7 in 0.05s]
                                 ^^^^^^^^^^^^^^^^^^  ^^^^^^^^
                                 schema.table REELS  statut renvoye
                                                     par Postgres
 ```
 
-**Pourquoi `CIC_DWH_seeds` et pas `CIC_DWH` ?** Votre `.env` fixe
-`POSTGRES_SCHEMA=CIC_DWH` (le schema de base), `dbt_project.yml`
+**Pourquoi `dbt_jeff_seeds` et pas `dbt_jeff` ?** Votre `.env` fixe
+`POSTGRES_SCHEMA=dbt_jeff` (le schema de base), `dbt_project.yml`
 ajoute `+schema: seeds` pour le dossier des seeds, et
 [`macros/generate_schema_name.sql`](../../macros/generate_schema_name.sql)
-combine les deux en `CIC_DWH_seeds` hors production. Mecanisme
+combine les deux en `dbt_jeff_seeds` hors production. Mecanisme
 complet : [reference-cli.md §5](../reference-cli.md), macro detaillee
 au [module 04](../04-jinja-macros-avancees/README.md).
 
@@ -213,7 +213,7 @@ dbt run --select staging
 les 6 modeles `stg_*`. Sans `--select`, dbt construit **tout** le
 projet.
 
-Vous verrez 6 lignes `OK created sql view model CIC_DWH_staging.stg_*`
+Vous verrez 6 lignes `OK created sql view model dbt_jeff_staging.stg_*`
 et, en derniere ligne, le bilan :
 
 ```

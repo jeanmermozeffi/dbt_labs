@@ -19,7 +19,10 @@ dbt_labs:
       user: "{{ env_var('POSTGRES_USER') }}"
       password: "{{ env_var('POSTGRES_PASSWORD') }}"
       dbname: "{{ env_var('POSTGRES_DB') }}"
-      schema: "{{ env_var('POSTGRES_SCHEMA', 'dbt_dev') }}"
+      # Pas de valeur par defaut : une variable manquante doit faire
+      # ECHOUER dbt, pas rediriger silencieusement deux developpeurs
+      # vers le meme schema partage. Meme discipline que POSTGRES_USER.
+      schema: "{{ env_var('POSTGRES_SCHEMA') }}"
       threads: 4
       keepalives_idle: 0
 

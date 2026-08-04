@@ -45,7 +45,7 @@ soi — remontez au premier `ERROR`.
 **Resolution de schema** — Le schema reel d'une table = combinaison de
 `target.schema` (depuis `profiles.yml`/`.env`), du `+schema:` du
 dossier (`dbt_project.yml`), et de la macro `generate_schema_name`.
-D'ou `CIC_DWH_marts` en dev et `marts` en prod. Voir
+D'ou `dbt_jeff_marts` en dev et `marts` en prod. Voir
 [module 00](00-setup/README.md).
 
 ## Vocabulaire de la modelisation

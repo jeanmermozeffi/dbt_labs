@@ -66,7 +66,7 @@ Points cles :
   ```bash
   dbt snapshot
   # 1 of 1 OK snapshotted snapshots.scd_customers [INSERT 0 0 in 0.16s]
-  #                       ^^^^^^^^^ pas "CIC_DWH_snapshots"
+  #                       ^^^^^^^^^ pas "dbt_jeff_snapshots"
   ```
 
   **Consequence a mesurer** : contrairement aux modeles, deux

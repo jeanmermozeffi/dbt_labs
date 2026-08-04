@@ -241,8 +241,8 @@ creation des roles, qui reste du ressort de l'admin warehouse).
 Verifiez :
 
 ```sql
-\dp "CIC_DWH_marts".dim_customers
--- CIC_DWH_marts | dim_customers | table | ...+bi_reader=r/admin_dbt_labs
+\dp "dbt_jeff_marts".dim_customers
+-- dbt_jeff_marts | dim_customers | table | ...+bi_reader=r/admin_dbt_labs
 ```
 
 ## Un mot sur le versioning de modeles (apercu)
