@@ -83,15 +83,83 @@ configuration") et perd le benefice de performance du microbatch.
 cd bootcamp-2-scale-orchestration/nyc_taxi_dbt
 export SSL_CERT_FILE=$(.venv/bin/python -c "import certifi; print(certifi.where())")
 .venv/bin/dbt seed
-.venv/bin/dbt build --event-time-start 2019-01-01 --event-time-end 2019-04-01
+.venv/bin/dbt build --event-time-start 2019-01-01 --event-time-end 2019-05-01
 ```
 
-Resultat mesure en construisant ce bootcamp : **18 noeuds (1 seed + 2
-modeles + 14 tests + 1 test singulier), 32 millions de lignes,
-build complet en moins de 4 secondes.** DuckDB est un moteur
-columnar, vectorise, multi-thread par defaut — la difference de
-performance avec un `INSERT` ligne-par-ligne traditionnel est
+Resultat mesure : **18 noeuds (1 seed + 2 modeles + 14 tests + 1 test
+singulier), 32 millions de lignes, 7,6 secondes de bout en bout**
+(dont ~4,5 s de travail dbt, le reste etant le demarrage du process).
+DuckDB est un moteur columnar, vectorise, multi-thread par defaut —
+la difference avec un `INSERT` ligne-par-ligne traditionnel est
 spectaculaire sur ce type de charge analytique.
+
+### La borne de fin est EXCLUSIVE — et l'erreur est invisible
+
+Regardez bien : `--event-time-end 2019-05-01`, pas `2019-04-01`.
+Cette borne est **exclusive**. Avec `2019-04-01`, vous ne chargez que
+janvier a mars :
+
+```bash
+.venv/bin/dbt build --event-time-start 2019-01-01 --event-time-end 2019-04-01
+# Done. PASS=18 ...   <- 18 noeuds, tout au vert, aucun avertissement
+```
+
+```sql
+select count(*) from main.fct_trips;
+-- 24 000 000     <- et non 32 000 000
+```
+
+**Le run est vert dans les deux cas.** Rien ne vous signale qu'il
+manque un quart des donnees : dbt a fait exactement ce qu'on lui a
+demande.
+
+Pire — et c'est le piege qui vous mordra vraiment : si `fct_trips`
+contenait deja avril (d'un run precedent), une commande bornee a
+`2019-04-01` **ne supprime pas** avril. Le microbatch ne retraite que
+les lots DANS la fenetre et laisse le reste intact :
+
+```
+fct_trips : 31 999 998 lignes    <- apres un build borne a 2019-04-01 !
+   2019-01  7 999 999
+   2019-02  8 000 000
+   2019-03  8 000 001
+   2019-04  7 999 998            <- rescape d'un run anterieur
+```
+
+Vous croyez alors que votre commande a charge 32 M. Elle en a charge
+24 M ; les 8 M restants sont un vestige. **Le nombre de lignes d'une
+table ne dit jamais a lui seul ce que votre derniere commande a
+fait.** Pour verifier ce que vous chargez reellement, partez d'une
+table vide :
+
+```bash
+python -c "import duckdb; duckdb.connect('nyc_taxi.duckdb').execute('drop table if exists main.fct_trips')"
+```
+
+C'est une propriete du microbatch (approfondie au
+[module 04](../04-incremental-microbatch/README.md)), pas un defaut :
+elle est ce qui rend les backfills cibles possibles. Mais elle exige
+de raisonner en **fenetres**, pas en totaux.
+
+### Pourquoi les mois ne font pas exactement 8 000 000
+
+```
+2019-01  7 999 999
+2019-02  8 000 000
+2019-03  8 000 001
+```
+
+Le generateur ecrit 8 M de lignes par FICHIER
+(`pickup_year=2019/pickup_month=01/`), mais tire les horodatages
+aleatoirement — quelques trajets tombent a cheval sur la frontiere du
+mois. Le partitionnement physique (le dossier) et la valeur metier
+(`pickup_at`) ne coincident donc pas parfaitement.
+
+Retenez-le : **ne supposez jamais qu'un partitionnement de fichiers
+garantit le contenu des fichiers.** Si votre logique metier depend de
+"tout janvier est dans le fichier de janvier", testez-le — c'est
+exactement ce que fait `assert_dropoff_after_pickup.sql` pour une
+autre invariante.
 
 ## Exercice
 

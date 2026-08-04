@@ -140,16 +140,72 @@ con.execute("""
 print("sans hive_partitioning (filtre sur le nom de fichier a la main):", time.time() - t0)
 ```
 
-Sans `hive_partitioning=true`, `pickup_year`/`pickup_month` n'existent
-plus comme colonnes — la seule facon de filtrer par fichier est de
-retomber sur la pseudo-colonne `filename` (qui existe toujours) avec
-un `LIKE`, un pattern bien plus fragile (depend du format exact du
-chemin) et qui **desactive le "File Filters" du plan** vu plus haut :
-DuckDB doit alors lister/ouvrir tous les fichiers avant de pouvoir
-appliquer un `LIKE` sur leur nom, perdant l'essentiel du gain de
-pruning. C'est la demonstration concrete que `hive_partitioning=true`
-n'est pas cosmetique : c'est ce qui transforme le chemin en un VRAI
-predicat de filtrage exploitable par l'optimiseur.
+### Le resultat mesure ne dit PAS ce qu'on attendait
+
+Lancez-le vraiment. Voici ce que ce projet produit :
+
+| Requete | Fichiers lus | Temps |
+|---|---|---|
+| `count(*)` + filtre hive | **1 / 4** | 3,8 ms |
+| `count(*)` + `filename LIKE` | 4 / 4 | 4,1 ms |
+| `avg(fare_amount)` + filtre hive | **1 / 4** | 7,2 ms |
+| `avg(fare_amount)` + `filename LIKE` | 4 / 4 | 6,9 ms |
+
+Le pruning est bien reel — `Scanning Files: 1/4` n'apparait QUE dans
+la version hive. **Mais le temps ne bouge pas.** Sur la derniere
+ligne, la version sans pruning est meme (marginalement) plus rapide.
+
+Il serait facile d'ecrire ici que `filename LIKE` "perd l'essentiel du
+gain de pruning". La mesure dit le contraire, et il faut le dire :
+
+1. **DuckDB pousse aussi le filtre `filename` vers le bas.** Il ouvre
+   les metadonnees des 4 fichiers, mais ne lit les donnees de colonnes
+   que du fichier retenu. Le travail evite est donc presque le meme.
+2. **A cette echelle, ouvrir 4 metadonnees parquet coute ~0 ms.** Sur
+   disque local, avec 4 fichiers, il n'y a tout simplement rien a
+   gagner.
+
+### Ce que le pruning fait vraiment economiser
+
+Comparez plutot "lire 1 fichier" a "lire 4 fichiers de donnees" :
+
+```python
+select avg(fare_amount) from {glob} where pickup_year=2019 and pickup_month='02'  # 1 fichier
+select avg(fare_amount) from {glob}                                               # 4 fichiers
+```
+
+```
+1 mois  (1 fichier lu)  :   6,8 ms
+4 mois  (4 fichiers)    :  18,1 ms      <- 2,7x
+```
+
+**Voila le vrai gain** : il vient de la quantite de DONNEES lues, pas
+du nombre de fichiers ouverts. 4x le volume pour 2,7x le temps (le
+reste etant du cout fixe).
+
+### Alors pourquoi `hive_partitioning=true` plutot que `filename LIKE` ?
+
+Pas pour la vitesse a cette echelle. Pour trois raisons qui, elles,
+ne dependent pas du volume :
+
+| | `hive_partitioning=true` | `filename LIKE` |
+|---|---|---|
+| Typage | `pickup_year = 2019` compare des **entiers** | comparaison de chaine sur un chemin |
+| Robustesse | insensible au format du chemin | casse des que l'arborescence change |
+| Lisibilite | un predicat metier | un detail d'implementation du stockage |
+
+Et la vitesse redevient decisive des que les conditions changent :
+**des milliers de fichiers** (ouvrir 5 000 metadonnees n'est plus
+gratuit), ou **du stockage objet distant** (module 02), ou chaque
+ouverture de fichier est un aller-retour reseau de plusieurs
+millisecondes. C'est la que `Scanning Files: 1/5000` fait la
+difference entre 2 secondes et 3 minutes.
+
+**La lecon de methode, plus importante que le resultat** : ce module
+affirmait un gain de performance qu'aucune mesure ne soutenait a
+cette echelle. Mesurez toujours sur VOS volumes avant de conclure —
+une optimisation vraie a grande echelle peut etre parfaitement nulle
+a petite echelle, et l'inverse arrive aussi.
 
 ## Suite
 

@@ -162,6 +162,60 @@ taxi_zone_lookup: 50 lignes
 Le pipeline complet — ingestion, staging, faits, tests — orchestre
 par un vrai scheduler, sur 32 millions de lignes.
 
+### Le prix de la granularite : 7,6 s contre 6 min 20 s
+
+Regardez le detail des 8 taches du run reel :
+
+| Tache | Duree |
+|---|---|
+| `stg_trips.run` | 39,6 s |
+| `taxi_zone_lookup.seed` | 57,0 s |
+| `stg_trips.test` | 61,1 s |
+| `taxi_zone_lookup.test` | 35,8 s |
+| `fct_trips.run` | 46,1 s |
+| `stg_zones.run` | 45,7 s |
+| `fct_trips.test` | 51,1 s |
+| `stg_zones.test` | 39,7 s |
+| **Total DAG** | **6 min 20 s** |
+
+Le meme travail, en une seule commande sur l'hote
+([module 01](../01-duckdb-a-lechelle/README.md)) : **7,6 secondes**.
+Un facteur **50**.
+
+Ce n'est pas un defaut de configuration, c'est le cout structurel du
+decoupage, et il vient de trois sources cumulees :
+
+1. **Le demarrage de dbt, paye 8 fois.** Chaque tache Cosmos lance un
+   sous-processus `dbt` complet : parsing du projet entier, resolution
+   des macros, ouverture d'une connexion. Ces ~30 s de cout fixe sont
+   quasi independantes du travail utile de la tache — d'ou le
+   `taxi_zone_lookup.seed` (50 lignes !) a 57 secondes.
+2. **La serialisation par `duckdb_pool`.** La somme des 8 taches fait
+   377 s, le DAG en dure 380 : **rien n'a tourne en parallele**. Avec
+   1 slot, le pool transforme le graphe en file d'attente.
+3. **L'overhead conteneur** (allocation du worker, logs, etat en base).
+
+**L'arbitrage a faire consciemment** :
+
+| | `BashOperator` unique (`dbt build`) | Cosmos (une tache par modele) |
+|---|---|---|
+| Duree ici | ~10 s | ~6 min |
+| Echec | "dbt a plante" | **quel modele** a plante |
+| Retry | tout le projet | **le modele seul** |
+| Parallelisme | celui de dbt (`threads`) | celui d'Airflow (si pas de pool) |
+
+Sur **ce** projet — 3 modeles, un entrepot mono-ecrivain, tout
+serialise — Cosmos coute 50x et n'apporte presque rien. Sur un projet
+de 400 modeles ou un `dbt build` dure 40 minutes, retrouver le modele
+fautif et ne rejouer que lui vaut largement 30 secondes de demarrage
+par tache.
+
+**Ne deployez pas Cosmos par principe.** Le seuil ou il devient
+rentable, c'est quand le cout d'un echec (re-executer tout le
+pipeline) depasse le cout de l'overhead (demarrage x nombre de
+modeles). Et si vous y allez, le `LoadMode.DBT_MANIFEST` evoque plus
+haut supprime une bonne partie du cout de parsing.
+
 ## Exercice
 
 Le pool `duckdb_pool` serialise TOUTES les taches dbt, y compris

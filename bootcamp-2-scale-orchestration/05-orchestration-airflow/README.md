@@ -123,6 +123,24 @@ Generez votre cle une fois, dans le `.env` a cote du compose :
 echo "AIRFLOW_JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> .env
 ```
 
+Verifiez que la substitution donne bien la MEME valeur partout — une
+cle differente entre le scheduler et l'api-server reproduit
+exactement l'erreur decrite plus bas :
+
+```bash
+docker compose config | grep JWT_SECRET
+# 4 lignes identiques (un service Airflow chacune)
+```
+
+Et apres demarrage, l'absence d'erreur de signature se controle en une
+commande :
+
+```bash
+docker compose logs airflow-scheduler airflow-apiserver \
+  | grep -ci "Invalid auth token\|Signature verification failed"
+# 0
+```
+
 - **`EXECUTION_API_SERVER_URL`** : en Airflow 3.x, chaque tache (executee
   par le scheduler) appelle l'api-server via HTTP pour rapporter son
   etat — ce n'est PAS un acces direct a la base. Sans cette URL

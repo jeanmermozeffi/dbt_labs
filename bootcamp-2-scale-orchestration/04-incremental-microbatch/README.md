@@ -77,12 +77,19 @@ donnees historique fige comme celui de ce bootcamp.
 ## Le correctif : des backfills EXPLICITEMENT scopes
 
 ```bash
-# Chargement initial : uniquement la fenetre reelle des donnees
+# Chargement initial : janvier a mars (la borne de fin est EXCLUSIVE)
 dbt run --select fct_trips --event-time-start 2019-01-01 --event-time-end 2019-04-01
 
 # Nouvelles donnees arrivees (avril) : on scope exactement ce lot
 dbt run --select fct_trips --event-time-start 2019-04-01 --event-time-end 2019-05-01
 ```
+
+**`--event-time-end` est exclusive.** La premiere commande charge
+janvier, fevrier, mars — pas avril. Pour tout charger d'un coup, la
+borne est `2019-05-01`. Une erreur ici ne produit **aucun message** :
+le run est vert, il manque simplement un mois. Voir
+[module 01](../01-duckdb-a-lechelle/README.md) pour la demonstration
+chiffree (24 M au lieu de 32 M).
 
 Resultat mesure : 3 lots (jan/fev/mar) en ~2.6s pour le premier appel,
 1 lot (avril) en ~1s pour le second — exactement ce qu'on attend,
@@ -115,6 +122,35 @@ toucher a janvier, mars ou avril.
 ```bash
 dbt run --select fct_trips --event-time-start 2019-02-01 --event-time-end 2019-03-01
 ```
+
+Ne me croyez pas sur parole : **mesurez une empreinte avant/apres.**
+Un simple `count(*)` ne suffit pas (il serait identique meme si un
+mois avait ete recalcule) — ajoutez une somme :
+
+```sql
+select date_trunc('month', pickup_at) as mois,
+       count(*), round(sum(fare_amount), 2)
+from main.fct_trips group by 1 order by 1;
+```
+
+```
+  2019-01-01   7 999 999  somme=139750783.41
+  2019-02-01   8 000 000  somme=139724726.24
+  2019-03-01   8 000 001  somme=139722184.35
+  2019-04-01   7 999 998  somme=139729746.82
+```
+
+Lancez le backfill de fevrier :
+
+```
+Batch 1 of 1 START batch 2019-02 of main.fct_trips ... [RUN]
+Batch 1 of 1 OK created batch 2019-02 of main.fct_trips [OK in 1.29s]
+Done. PASS=1 ...
+```
+
+**`Batch 1 of 1`** — un seul lot ouvert, pas quatre. Et l'empreinte
+apres coup : les quatre mois strictement identiques, total inchange a
+31 999 998.
 
 Grace a `microbatch`, dbt sait que ce lot existe deja dans la table
 (logique interne : `DELETE` du lot + `INSERT` du lot recalcule, une

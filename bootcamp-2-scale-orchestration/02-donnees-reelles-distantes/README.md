@@ -22,11 +22,25 @@ select count(*)
 from read_parquet('https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2019-01.parquet')
 ```
 
-**Mesure reelle, capturee en construisant ce bootcamp** : cette
-requete renvoie `7 696 617` en **moins de 3 secondes** — sans
-telecharger le fichier (110 Mo) en entier. DuckDB lit d'abord le
-FOOTER du fichier parquet (metadonnees + stats par row group), et pour
-un simple `count(*)`, n'a besoin de rien d'autre.
+**Mesure reelle** : cette requete renvoie `7 696 617` en **0,5
+seconde** — sans telecharger le fichier (110 Mo) en entier. DuckDB lit
+d'abord le FOOTER du fichier parquet (metadonnees + stats par row
+group), et pour un simple `count(*)`, n'a besoin de rien d'autre.
+
+```python
+import duckdb
+c = duckdb.connect()
+c.execute('install httpfs; load httpfs;')
+c.execute("select count(*) from read_parquet('https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2019-01.parquet')").fetchone()
+# (7696617,)  -- 0.52s
+```
+
+**Avant de lancer les requetes de cette page**, lisez la section
+"Piege reel" plus bas : ce CDN est une ressource publique partagee, et
+le bootcamp l'a deja fait declencher un blocage WAF. Une requete
+`count(*)` sur un fichier est un usage parfaitement legitime ; une
+rafale de telechargements paralleles ne l'est pas. Rejouez les
+exemples un par un, pas en boucle.
 
 ## Passer a l'echelle : une LISTE d'URLs, pas un glob
 
