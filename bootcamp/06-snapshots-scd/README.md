@@ -110,7 +110,46 @@ Resultat observe dans `snapshots.scd_customers` :
 
 Deux versions, periode de validite continue (le `dbt_valid_to` de la
 premiere = `dbt_valid_from` de la seconde), la version courante a
-`dbt_valid_to IS NULL`. Requete typique "etat au 1er janvier 2026" :
+`dbt_valid_to IS NULL`.
+
+### Un snapshot ne s'annule pas : essayez de revenir en arriere
+
+Remettez la source dans son etat initial, comme si vous corrigiez une
+erreur de saisie :
+
+```bash
+psql ... -c "update raw.customers set customer_segment='standard', updated_at=now() where customer_id=2;"
+dbt snapshot
+```
+
+```
+ customer_id | customer_segment |       dbt_valid_from       |        dbt_valid_to
+-------------+------------------+----------------------------+----------------------------
+           2 | standard         | 2025-12-30 00:12:46.785675 | 2026-08-04 16:13:13.584430
+           2 | vip              | 2026-08-04 16:13:13.584430 | 2026-08-04 16:13:42.842544
+           2 | standard         | 2026-08-04 16:13:42.842544 |
+```
+
+**Trois versions.** Le snapshot n'est pas revenu a deux lignes : il a
+enregistre le retour arriere comme un troisieme evenement. Un
+snapshot est **append-only par construction** — c'est ce qui en fait
+une source fiable pour l'audit, et ce qui vous interdit de vous en
+servir comme d'une table que l'on corrige.
+
+Deux consequences pratiques :
+
+- **Une erreur de donnee source devient un fait historique.** Si un
+  systeme amont ecrit une valeur aberrante et la corrige 10 minutes
+  apres, votre SCD2 conservera les trois etats. C'est voulu, mais ca
+  veut dire qu'une analyse "au fil du temps" doit parfois filtrer les
+  versions de tres courte duree.
+- **Ne "nettoyez" jamais un snapshot avec un `UPDATE` manuel.** Vous
+  detruiriez la seule copie d'un etat passe. Si l'historique est
+  reellement pollue, la seule option propre est de le reconstruire
+  depuis une source qui contient encore cet historique — ce qui,
+  la plupart du temps, n'existe pas. D'ou le piege n°2 ci-dessous.
+
+Requete typique "etat au 1er janvier 2026" :
 
 ```sql
 select *

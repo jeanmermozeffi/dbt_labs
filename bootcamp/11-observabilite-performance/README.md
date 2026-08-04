@@ -55,6 +55,35 @@ potentiel de faux positifs (comme ici) — pour un test `error` sur une
 cle primaire, l'echec bloque de toute facon le build, moins besoin
 d'audit differe.
 
+### La table existe meme quand le test passe
+
+Interrogez-la maintenant, sur des donnees saines :
+
+```sql
+select * from "dbt_jeff_dbt_test_failures".assert_payments_reconcile_with_orders;
+```
+
+```
+ order_id | subtotal_cents | total_paid_cents | delta_cents
+----------+----------------+------------------+-------------
+(0 rows)
+```
+
+**La table existe, elle est vide.** dbt la recree (`CREATE TABLE AS`)
+a chaque execution du test, avec le resultat du moment — zero ligne
+quand tout va bien.
+
+Deux consequences pour qui construit du monitoring par-dessus :
+
+- **"Table absente" et "table vide" ne veulent pas dire la meme
+  chose.** Vide = le test a tourne et n'a rien trouve. Absente = le
+  test n'a jamais tourne. Un tableau de bord qui confond les deux
+  affichera "tout va bien" alors que plus rien ne s'execute.
+- **Le contenu est ecrase, pas accumule.** Vous voyez l'echec du
+  DERNIER run, jamais l'historique. Pour suivre une derive dans le
+  temps, il faut copier ces lignes ailleurs apres chaque run (avec un
+  horodatage) — c'est une partie de ce qu'automatise Elementary.
+
 ## Les artifacts dbt : la source de verite machine-readable
 
 Chaque commande dbt ecrit dans `target/` :

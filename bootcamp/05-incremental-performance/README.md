@@ -202,16 +202,67 @@ dbt run --select fct_orders --full-refresh
 
 ## Tester un modele incremental correctement
 
+Le protocole complet tient en trois runs, et le troisieme est celui
+que tout le monde oublie.
+
+**1. Baseline** — reconstruction complete :
+
 ```bash
-dbt run --select fct_orders --full-refresh   # reconstruction complete, baseline
-dbt run --select fct_orders                  # run incrementel : doit inserer 0 ligne si rien n'a change
+dbt run --select fct_orders --full-refresh
+# OK created sql incremental model dbt_jeff_marts.fct_orders [INSERT 0 90]
 ```
 
-Si le deuxieme run insere N lignes alors que rien n'a change en
-amont, votre condition `is_incremental()` est fausse (probablement
-une colonne source qui change a chaque run, comme un
-`current_timestamp` non maitrise — voir le piege du module 04 sur
-`loaded_at`).
+**2. Run a vide** — rien n'a change en amont :
+
+```bash
+dbt run --select fct_orders
+# OK created sql incremental model dbt_jeff_marts.fct_orders [INSERT 0 0]
+```
+
+`INSERT 0 0` est le resultat ATTENDU. Si vous voyez N lignes ici,
+votre condition `is_incremental()` est fausse — typiquement une
+colonne source qui change a chaque run (un `current_timestamp` non
+maitrise, voir le piege du module 04 sur `loaded_at`).
+
+**3. Run avec une vraie nouveaute** — l'etape qui prouve que le
+filtre n'est pas simplement *toujours faux* :
+
+```bash
+psql ... -c "insert into raw.orders (order_id, customer_id, order_status, ordered_at, updated_at)
+             values (999, 1, 'placed', now(), now());"
+
+dbt run --select fct_orders
+# OK created sql incremental model dbt_jeff_marts.fct_orders [INSERT 0 1]
+```
+
+**`INSERT 0 1`. C'est ce chiffre qui valide le high-water mark**, et
+lui seul. Les etapes 1 et 2 passeraient tout aussi bien avec un
+filtre casse : un `where updated_at > <valeur dans le futur>` donne
+`INSERT 0 0` a l'etape 2, exactement comme un filtre sain. C'est
+precisement ce qui a rendu le bug decrit plus haut invisible pendant
+la construction de ce projet.
+
+Verifiez l'etat au moment du test, ca rend l'echec lisible :
+
+```
+max updated_at = 2026-07-28 00:12:46 | now() = 2026-08-04 16:12:32
+```
+
+Le `max` doit etre **en arriere** de `now()`. S'il le depasse, le
+filtre `> max(updated_at)` ne matchera plus jamais rien de nouveau.
+
+Nettoyez derriere vous :
+
+```bash
+psql ... -c "delete from raw.orders where order_id = 999;"
+dbt run --select fct_orders --full-refresh   # INSERT 0 90
+```
+
+Un `delete` en amont n'est PAS repercute par un run incremental
+(`append` et `delete+insert` n'effacent que ce qu'ils reinserent) :
+sans le `--full-refresh` final, `fct_orders` garderait la commande
+999 indefiniment. C'est la contrepartie permanente de l'incremental —
+**il ne voit que ce qui arrive, jamais ce qui disparait.**
 
 ## Exercice
 

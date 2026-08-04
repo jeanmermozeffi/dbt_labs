@@ -288,6 +288,101 @@ avec une condition composee — un test generique prend un seul
 `model`/`column_name`, il ne peut pas exprimer nativement "sur un
 AUTRE modele, une valeur associee doit valoir X".
 
+#### Lancez-le : il ECHOUE. Et c'est tout l'interet.
+
+```bash
+dbt test --select assert_no_placed_orders_on_inactive_products
+```
+
+```
+1 of 1 FAIL 1 assert_no_placed_orders_on_inactive_products [FAIL 1 in 0.03s]
+Done. PASS=0 WARN=0 ERROR=1 SKIP=0 NO-OP=0 TOTAL=1
+```
+
+Ne corrigez pas votre SQL : il est juste. Le test a fait son travail,
+il a **trouve quelque chose**. Allez voir quoi :
+
+```
+ order_id | product_id |    product_name
+----------+------------+--------------------
+       33 |         15 | Puzzle 1000 pieces
+```
+
+Un test rouge pose toujours la meme question, et ce n'est jamais
+"comment le faire passer" : **la donnee est-elle fausse, ou la regle
+est-elle fausse ?** Ici, remontez a la source :
+
+```sql
+select p.product_id, p.is_active, o.order_id, o.order_status, o.ordered_at
+from raw.products p
+join raw.order_items oi on oi.product_id = p.product_id
+join raw.orders o on o.order_id = oi.order_id
+where p.is_active = false and o.order_status = 'placed';
+```
+
+```
+ product_id | is_active | order_id | order_status |   ordered_at
+------------+-----------+----------+--------------+---------------------
+         15 | f         |       33 | placed       | 2026-06-01 09:00:00
+```
+
+**La regle est fausse.** Elle compare deux choses de nature
+differente :
+
+| Element | Nature |
+|---|---|
+| `dim_products.is_active` | l'etat **ACTUEL** du produit (dimension Type 1, aucun historique) |
+| `order_status = 'placed'` | un evenement **PASSE** |
+
+Un produit retire du catalogue *apres* qu'une commande a ete passee
+dessus est un scenario parfaitement normal. Le test le signale comme
+une anomalie parce qu'il suppose, implicitement, que `is_active`
+valait deja `false` au moment de la commande — ce que rien ne permet
+d'affirmer. `raw.products` n'a meme pas de colonne `updated_at` : on
+ne peut pas savoir QUAND le produit a ete desactive.
+
+C'est une erreur de modelisation classique et couteuse :
+**confronter un attribut courant a un fait historique**. Deux sorties
+legitimes :
+
+1. **Assumer que c'est un signal, pas une violation d'integrite** —
+   `{{ config(severity='warn') }}`. Quelqu'un doit regarder, mais ca
+   ne doit pas bloquer un deploiement.
+2. **Rendre la question repondable** — historiser `is_active` avec un
+   snapshot SCD2, puis tester "le produit etait-il actif A LA DATE de
+   la commande ?". C'est exactement l'objet de l'exercice du
+   [module 06](../06-snapshots-scd/README.md), et la raison pour
+   laquelle il utilise `strategy='check'` : sans `updated_at` fiable,
+   c'est la seule facon de dater le changement.
+
+Retenez la sequence, elle vaut pour tous vos tests rouges en
+production : **lire les lignes fautives → remonter a la source →
+decider si c'est la donnee ou la regle → seulement ensuite, agir.**
+
+#### Un mot sur la premiere partie de l'exercice
+
+`not_negative` sur `dim_products.orders_count` passe — mais
+regardez pourquoi :
+
+```sql
+-- models/marts/core/dim_products.sql
+count(distinct order_id) as orders_count,
+...
+coalesce(ps.orders_count, 0) as orders_count,
+```
+
+Un `count()` ne peut pas etre negatif, et le `coalesce(..., 0)`
+elimine le seul autre cas possible. **Ce test ne peut structurellement
+jamais echouer.** Il n'est pas nuisible, mais il ne protege de rien :
+il documente une intention deja garantie par le SQL.
+
+Un test qui ne peut pas echouer donne un faux sentiment de couverture.
+Avant d'ajouter un test, posez-vous : *quel bug realiste ce test
+attraperait-il ?* Si vous ne savez pas repondre, le test appartient
+plutot a une colonne dont la valeur vient de l'exterieur (une source,
+un calcul non borne) qu'a un agregat que vous venez de contraindre
+vous-meme.
+
 ## Suite
 
 → [Module 04 — Jinja et macros avancees](../04-jinja-macros-avancees/README.md)

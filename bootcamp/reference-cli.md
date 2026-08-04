@@ -486,6 +486,44 @@ Trois choses a savoir :
 | `Model 'X' depends on 'Y' which is disabled` | `+enabled: false` quelque part dans la config hierarchique | chercher `enabled` dans `dbt_project.yml` et les `{{ config() }}` |
 | `Found a cycle` | deux modeles se referencent mutuellement | casser le cycle (module 02) |
 | Un test echoue mais vous ne voyez pas les lignes fautives | dbt n'affiche que le compte | `dbt test --select <test> --store-failures`, puis interroger la table de failures (module 11) |
+| dbt signale une erreur sur du code que vous avez DEJA supprime (ou ignore un ajout recent) | **cache de parsing partiel perime** | `dbt parse --no-partial-parse`, ou supprimer `target/partial_parse.msgpack` |
+
+### Le cache de parsing partiel, ce faux coupable
+
+Celui-la merite un developpement, parce qu'il vous fera douter de
+votre propre code. Rencontre en validant ce bootcamp :
+
+```bash
+# le fichier a ete restaure, il ne contient plus la metrique fautive
+grep -c "items_per_order" models/marts/core/_core__semantic_models.yml
+# 0
+git diff --stat models/marts/core/_core__semantic_models.yml
+# (rien : fichier identique a HEAD)
+
+dbt ls --resource-type metric
+# Parsing Error in metric items_per_order
+#   The metric `total_items_sold` does not exist but was referenced.
+```
+
+**dbt se plaint d'une metrique qui n'existe dans aucun fichier.**
+Pour accelerer le demarrage, dbt conserve le resultat du dernier
+parsing dans `target/partial_parse.msgpack` (~1,2 Mo sur ce projet)
+et ne relit que les fichiers dont l'horodatage a change. La detection
+est fiable la plupart du temps — pas toujours, notamment apres une
+restauration de fichier, un `git checkout`, ou une edition par un
+outil qui preserve les timestamps.
+
+Le reflexe quand une erreur dbt ne correspond a AUCUN fichier
+present :
+
+```bash
+dbt parse --no-partial-parse     # ignore le cache pour cette commande
+rm target/partial_parse.msgpack  # ou supprimez-le franchement
+dbt clean                        # ou repartez de zero (supprime tout target/)
+```
+
+Ne debuggez jamais plus de deux minutes une erreur qui contredit ce
+que `grep` vous montre : c'est presque toujours ce cache.
 
 Dans tous les cas, la sequence de diagnostic est la meme :
 

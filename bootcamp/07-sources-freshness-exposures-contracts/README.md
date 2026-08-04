@@ -240,10 +240,29 @@ creation des roles, qui reste du ressort de l'admin warehouse).
 
 Verifiez :
 
-```sql
-\dp "dbt_jeff_marts".dim_customers
--- dbt_jeff_marts | dim_customers | table | ...+bi_reader=r/admin_dbt_labs
+```bash
+psql ... -c '\dp "dbt_jeff_marts".dim_customers'
 ```
+
+```
+ dbt_jeff_marts | dim_customers | table | admin_dbt_labs=arwdDxt/admin_dbt_labs+
+                |               |       | bi_reader=r/admin_dbt_labs
+```
+
+Lecture de la notation Postgres, qui n'est pas evidente :
+
+| Element | Signification |
+|---|---|
+| `bi_reader=` | le role beneficiaire |
+| `r` | le privilege : `r`ead, c'est-a-dire `SELECT` |
+| `/admin_dbt_labs` | qui a accorde ce droit |
+
+`admin_dbt_labs=arwdDxt` est le proprietaire de la table (tous les
+droits). La ligne qui vous interesse est la seconde : **un seul
+privilege, `r`**, exactement ce que declare le YAML. Si vous y voyez
+`arw`, quelqu'un a accorde un `INSERT`/`UPDATE` a la main — et le
+prochain `dbt run` le revoquera, puisque dbt aligne l'etat reel sur
+la config.
 
 ## Un mot sur le versioning de modeles (apercu)
 

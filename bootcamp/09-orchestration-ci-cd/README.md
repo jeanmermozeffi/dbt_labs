@@ -83,6 +83,53 @@ Un selecteur nomme evite de retaper/desynchroniser la meme chaine
 `--select` complexe dans plusieurs endroits (CI, scripts locaux,
 documentation).
 
+### Essayez-le maintenant, en local, en 30 secondes
+
+Pas besoin d'attendre une PR : `--state` accepte n'importe quel
+dossier contenant un `manifest.json`.
+
+```bash
+mkdir -p /tmp/state_ref && cp target/manifest.json /tmp/state_ref/
+dbt ls --select "state:modified+" --state /tmp/state_ref
+```
+
+```
+The selection criterion 'state:modified+' does not match any enabled nodes
+No nodes selected!
+```
+
+Logique : vous comparez le projet a lui-meme. Maintenant, touchez un
+modele :
+
+```bash
+echo "-- commentaire de test" >> models/staging/stg_products.sql
+dbt ls --select "state:modified+" --state /tmp/state_ref --resource-type model
+```
+
+```
+dbt_labs.marts.core.dim_products
+dbt_labs.marts.returns.product_return_rates
+dbt_labs.staging.stg_products
+```
+
+**3 modeles sur 15.** Le modifie, plus ses deux consommateurs en aval
+— y compris `product_return_rates`, qui appartient a un autre
+domaine. C'est exactement ce qu'une CI doit reconstruire, et rien de
+plus.
+
+**Le detail qui surprend** : un simple **commentaire** a suffi.
+`state:modified` compare le SQL brut du fichier, pas son sens. Un
+reformatage, un commentaire ajoute, un espace en fin de ligne
+declenchent une reconstruction complete de l'aval.
+
+Ce n'est pas un defaut — dbt ne peut pas prouver qu'un changement
+textuel est semantiquement neutre, et se tromper dans ce sens serait
+bien pire (ne pas reconstruire ce qui aurait du l'etre). Mais ca a
+une consequence concrete : **evitez de reformater 200 fichiers dans
+la meme PR que vos changements fonctionnels**, sinon votre slim CI
+reconstruit tout et vous perdez le benefice. Separez les PR de
+formatage des PR de logique.
+
 ## Hooks : executer du SQL avant/apres un run
 
 `dbt_project.yml` supporte `on-run-start`/`on-run-end` (niveau

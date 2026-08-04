@@ -190,6 +190,34 @@ Validez sans avoir besoin de `dbt-metricflow` :
 dbt parse   # doit reussir silencieusement ; toute erreur de semantic layer apparait ici
 ```
 
+Et listez le resultat, plutot que de supposer que l'ajout a pris :
+
+```bash
+dbt ls --select "metric:*"
+```
+
+```
+metric:dbt_labs.average_order_value
+metric:dbt_labs.order_count
+metric:dbt_labs.return_count
+metric:dbt_labs.total_refunded
+metric:dbt_labs.total_revenue
+```
+
+Vous devez en compter **deux de plus** apres l'exercice
+(`total_items_sold` et `items_per_order`).
+
+**Deux pieges d'outillage sur cette commande precisement :**
+
+1. Utilisez `--select "metric:*"`, pas `--resource-type metric` — la
+   seconde forme renvoie une liste vide sur certaines versions.
+2. Si dbt vous signale une erreur sur une metrique **que vous venez
+   de supprimer**, ce n'est pas vous : c'est le cache de parsing
+   partiel. `dbt parse --no-partial-parse`, ou supprimez
+   `target/partial_parse.msgpack`. Detail dans
+   [reference-cli.md §7](../reference-cli.md) — nous sommes tombes
+   dedans en validant ce module.
+
 ## Suite
 
 → [Module 09 — Orchestration et CI/CD](../09-orchestration-ci-cd/README.md)

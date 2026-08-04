@@ -87,10 +87,26 @@ dbt parse
 
 ```
 Parsing Error
-  Node model.dbt_labs.product_return_rates attempted to reference
+  Node model.dbt_labs.fct_returns attempted to reference
   node model.dbt_labs.stg_returns, which is not allowed because the
   referenced node is private to the 'core' group.
 ```
+
+**Lisez bien quel noeud est incrimine** : `fct_returns`, pas
+`product_return_rates`. C'est `fct_returns` qui fait
+`{{ ref('stg_returns') }}` ; `product_return_rates` consomme
+`fct_returns`, il ne touche jamais le staging. Verifiez-le avant de
+chercher au mauvais endroit :
+
+```bash
+grep -rn "ref('stg_returns')" models/
+# models/marts/returns/fct_returns.sql:14
+```
+
+dbt signale toujours le **consommateur direct**, jamais le bout de la
+chaine. Sur un DAG profond, c'est le reflexe qui vous fait gagner le
+plus de temps : l'erreur nomme exactement les deux noeuds de l'arete
+interdite, pas le modele final que vous aviez en tete.
 
 **dbt bloque a la compilation**, pas a l'execution — vous le
 detectez en 2 secondes en local, pas apres 20 minutes de `dbt run` en
