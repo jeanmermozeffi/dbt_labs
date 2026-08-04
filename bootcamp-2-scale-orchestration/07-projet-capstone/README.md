@@ -40,15 +40,110 @@ recalculer les mois deja charges.
 
 ## Criteres d'acceptation
 
+**Piege de selecteur, a resoudre avant tout le reste.** La commande
+qui vient naturellement est fausse :
+
 ```bash
 dbt build --select monthly_borough_revenue+ --event-time-start 2019-05-01 --event-time-end 2019-06-01
 ```
 
-0 erreur. Le test de volume doit passer au vert sur les donnees
-actuelles (pas de vraie chute), et vous devez pouvoir DEMONTRER qu'il
-detecterait une chute en cassant volontairement les donnees d'un mois
-(supprimez la moitie des lignes d'un fichier parquet source, relancez,
-observez le warning).
+Verifiez ce qu'elle selectionne reellement :
+
+```bash
+dbt ls --select "monthly_borough_revenue+"
+```
+
+```
+nyc_taxi_dbt.marts.monthly_borough_revenue
+nyc_taxi_dbt.assert_no_volume_drop_month_over_month
+```
+
+**`fct_trips` n'y est pas.** Le `+` a droite prend les descendants ;
+or `fct_trips` est un ANCETRE. Les flags `--event-time-*` ne
+s'appliquent donc a aucun modele microbatch : mai ne sera jamais
+charge, et le mart se reconstruira sur les donnees deja presentes,
+sans la moindre erreur. Le bon selecteur porte un `+` **des deux
+cotes** :
+
+```bash
+dbt ls --select "+monthly_borough_revenue+"
+# nyc_taxi_dbt.marts.fct_trips          <- present, cette fois
+# nyc_taxi_dbt.marts.monthly_borough_revenue
+# nyc_taxi_dbt.staging.stg_trips
+# ... + les 15 tests
+```
+
+```bash
+dbt build --select "+monthly_borough_revenue+" \
+    --event-time-start 2019-05-01 --event-time-end 2019-06-01
+```
+
+Prenez le reflexe : **tout `--select` destine a un backfill doit etre
+valide avec `dbt ls` avant d'etre lance.** Un selecteur trop etroit ne
+produit aucune erreur, seulement des donnees manquantes.
+
+Resultat attendu sur les 4 mois deja en place :
+
+```
+Done. PASS=20 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=20
+```
+
+Et le mart doit contenir **20 lignes** (4 mois x 5 boroughs) :
+
+```
+  2019-01-01  Bronx          1 633 875      33 876 713
+  2019-01-01  Brooklyn       1 550 199      31 972 324
+  ...
+```
+
+### Demontrer que le test detecte vraiment une chute
+
+Un test au vert ne prouve rien tant que vous ne l'avez pas vu rougir.
+L'enonce suggere de mutiler un fichier parquet source — **ne faites
+pas ca** : vous detruiriez une donnee que seul le generateur peut
+recreer. Cassez plutot la TABLE, que le microbatch sait reconstruire :
+
+```python
+import duckdb
+c = duckdb.connect('nyc_taxi.duckdb')
+c.execute("""delete from main.fct_trips
+             where pickup_at >= '2019-04-01' and pickup_at < '2019-05-01'
+               and hash(rowid) % 100 < 50""")
+# avril ramene a 3 999 641 lignes (~50%)
+```
+
+```bash
+dbt build --select "monthly_borough_revenue+"
+```
+
+```
+2 of 2 WARN 5 assert_no_volume_drop_month_over_month [WARN 5 in 0.02s]
+[WARNING]: Got 5 results, configured to warn if != 0
+Done. PASS=1 WARN=1 ERROR=0 SKIP=0 NO-OP=0 TOTAL=2
+```
+
+**`WARN 5`** : les cinq boroughs, chacun sous les 80 % du mois
+precedent. Le test fait son travail, et `severity='warn'` le signale
+sans bloquer le pipeline — le bon choix ici, puisqu'une vraie baisse
+saisonniere de 20 % reste plausible.
+
+Restaurez avec un backfill scope d'un seul lot :
+
+```bash
+dbt build --select "fct_trips+" --event-time-start 2019-04-01 --event-time-end 2019-05-01
+```
+
+```
+Batch 1 of 1 START batch 2019-04 of main.fct_trips ... [RUN]
+Batch 1 of 1 OK created batch 2019-04 of main.fct_trips [OK in 0.95s]
+Done. PASS=8 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=8
+```
+
+**Une seconde pour reparer 4 millions de lignes**, sans toucher a
+janvier, fevrier ni mars. C'est la demonstration la plus concrete de
+ce que `microbatch` (module 04) vous achete : un incident circonscrit
+a une periode se repare en rejouant cette periode, pas le pipeline
+entier. Sur un historique de 5 ans, la difference se compte en heures.
 
 ## Solution
 
@@ -146,6 +241,28 @@ module 04) ; `monthly_borough_revenue`, lui, n'est PAS microbatch
 (c'est un agregat complet, pas un flux d'evenements) — il se
 reconstruit entierement a chaque run, mais reste rapide (agregation
 de 32-40M lignes en quelques secondes sur DuckDB, module 01).
+
+**Ce melange est volontaire et vaut d'etre compris.** Dans un meme
+`dbt build`, deux modeles voisins obeissent a des regles opposees :
+
+| | `fct_trips` | `monthly_borough_revenue` |
+|---|---|---|
+| Materialisation | `incremental` / `microbatch` | `table` |
+| Effet de `--event-time-*` | limite les lots traites | **aucun** |
+| Cout d'un run | proportionnel a la fenetre | proportionnel au TOTAL |
+
+Consequence pratique : le mart voit toujours l'integralite de
+`fct_trips`, y compris les mois que vous n'avez pas retraites. C'est
+ce qui rend le test de non-regression possible (il compare des mois
+entre eux), et c'est aussi pourquoi un `fct_trips` partiellement
+charge produit un mart faux **sans aucune erreur** — exactement le
+piege du [module 01](../01-duckdb-a-lechelle/README.md).
+
+La regle : reservez `microbatch` aux tables de FAITS a l'echelle des
+evenements ; laissez les agregats en `table` tant que leur
+reconstruction complete reste de l'ordre de la seconde. Passer un
+agregat en incremental "par principe" ajoute une complexite (et une
+classe de bugs) pour un gain souvent nul.
 
 ## Fin du bootcamp 2
 
