@@ -39,6 +39,65 @@ avant de pouvoir joindre proprement deux choses, ca va en
 intermediate — pas directement dans le mart final (qui deviendrait
 imbitable a lire).
 
+#### "Zero objet cree en base" : verifiez-le, ne me croyez pas
+
+C'est l'affirmation la plus contre-intuitive du module, et elle est
+observable en trois commandes :
+
+```bash
+dbt ls --resource-type model | wc -l
+# 15   <- dbt connait 15 modeles
+```
+
+```bash
+psql ... -c "select count(*) from information_schema.tables
+             where table_schema in ('dbt_jeff_staging','dbt_jeff_marts');"
+# 13   <- il n'en existe que 13 physiquement
+```
+
+Les deux manquants sont exactement les deux `int_*` :
+
+```bash
+dbt ls --select intermediate --resource-type model
+# dbt_labs.intermediate.int_order_amounts
+# dbt_labs.intermediate.int_payments_pivoted
+
+psql ... -c "select count(*) from information_schema.tables
+             where table_name like 'int_%';"
+# 0
+```
+
+**Ou sont-ils passes ?** Dans le SQL compile de leurs consommateurs :
+
+```bash
+dbt compile --select fct_orders
+grep -n "__dbt__cte" target/compiled/dbt_labs/models/marts/core/fct_orders.sql
+```
+
+```sql
+ 8: with  __dbt__cte__int_order_amounts as (
+33: ),  __dbt__cte__int_payments_pivoted as (
+133:     select * from __dbt__cte__int_order_amounts
+```
+
+dbt a **recopie le corps entier** de chaque modele ephemeral en CTE,
+en tete de la requete qui l'utilise. D'ou les consequences pratiques,
+qui decoulent toutes de ce seul mecanisme :
+
+| Consequence | Pourquoi |
+|---|---|
+| Impossible de faire `select * from int_order_amounts` | L'objet n'existe pas |
+| Impossible de tester un modele ephemeral directement | Un test dbt est un `SELECT` sur un objet ; il n'y en a pas |
+| Impossible de le snapshotter (module 06) | Meme raison |
+| Le SQL des marts devient long et duplique | Chaque consommateur embarque sa propre copie |
+
+Ce dernier point est le vrai arbitrage : `ephemeral` est gratuit en
+stockage mais **recalcule la logique dans chaque consommateur**. Avec
+un seul consommateur (le cas ici), c'est le bon choix. Des que trois
+marts utilisent le meme `int_*` sur un gros volume, passez-le en
+`view` ou `table` — vous echangez du stockage contre un calcul unique
+et la possibilite de le tester.
+
 ### Marts (`models/marts/`) — l'interface consommee par le reste du monde
 
 C'est ce que la BI, les analystes, le Semantic Layer interrogent.
@@ -58,6 +117,40 @@ projet existent tous les deux parce qu'ils repondent a des questions
 a un grain different (le total d'une commande vs. le detail par
 produit) — fusionner les deux forcerait soit une double comptabilisation
 des montants de commande, soit la perte du detail produit.
+
+## Construire la couche, et observer ce qui apparait
+
+A la fin du [module 01](../01-fondamentaux/README.md), vous aviez
+**2 marts sur 7** (`fct_orders` et `dim_customers` seulement).
+Completons :
+
+```bash
+dbt build --select marts
+```
+
+```
+Done. PASS=32 WARN=0 ERROR=0 SKIP=0 NO-OP=2 TOTAL=34
+```
+
+```bash
+psql ... -c "select table_schema, count(*) from information_schema.tables
+             where table_schema like '${POSTGRES_SCHEMA}%' group by 1 order by 1;"
+```
+
+```
+ dbt_jeff_marts   | 7      <- les 7, cette fois
+ dbt_jeff_seeds   | 2
+ dbt_jeff_staging | 6
+```
+
+Deux details a noter dans ce bilan :
+
+- **`NO-OP=2`** : les deux exposures (module 07). Elles font partie du
+  graphe mais ne contiennent aucun SQL — dbt n'a rien a executer.
+- **`--select marts` a suffi**, sans reconstruire le staging : les
+  vues `stg_*` existaient deja et rien ne dependait d'elles qui ait
+  change. dbt ne reconstruit que ce que vous selectionnez ; c'est
+  `+marts` qu'il aurait fallu ecrire pour inclure l'amont.
 
 ## Un choix d'architecture assume : les dimensions dependent des faits
 
@@ -104,9 +197,14 @@ deux dossiers differents produisent le meme nom de fichier.
 
 Construisez un nouveau mart `monthly_category_revenue`
 (`models/marts/core/`), grain = 1 ligne par (mois x categorie
-produit), avec : `order_month`, `category`, `items_sold`,
+produit), avec : le mois, la `category`, `items_sold` et
 `revenue_cents`. Utilisez `fct_order_items`, `dim_products` et
 `dim_dates` (deja construits). Filtrez les commandes annulees.
+
+**Sous-question a trancher vous-meme** : comment representez-vous "le
+mois" ? Une seule colonne texte (`'2026-05'`), ou plusieurs colonnes
+(`year_number`, `month_number`, `month_name`) ? Les deux marchent —
+justifiez votre choix avant de regarder la solution.
 
 ### Solution
 
@@ -169,16 +267,58 @@ select * from final
 order by year_number, month_number, category
 ```
 
+**Reponse a la sous-question** : trois colonnes
+(`year_number`, `month_number`, `month_name`), pas une chaine
+`'2026-05'`. Une chaine se trie correctement par hasard (parce que
+`YYYY-MM` est lexicographiquement ordonne) mais interdit tout
+`where month_number = 12` ou toute comparaison d'annee sans
+`substring()`. On garde les composantes separees dans le mart, et on
+laisse la couche de restitution les concatener si elle le souhaite.
+
+Notez aussi la colonne `line_items` (`count(*)`), non demandee dans
+l'enonce : elle est quasi gratuite une fois le `group by` ecrit, et
+c'est elle qui permet de distinguer "10 000 EUR sur 2 grosses
+commandes" de "10 000 EUR sur 400 petites". Ajouter une mesure de
+volumetrie a cote d'une mesure de montant est un reflexe qui evite
+beaucoup de conclusions hatives.
+
 Points a remarquer dans cette solution :
 
 - **`inner join` sur `dates`**, pas `left join` : si une commande a
   une date hors de la plage generee par `dim_dates`
   (`date_spine_start_date` dans `dbt_project.yml`), on VEUT que la
   ligne disparaisse silencieusement plutot que de fausser
-  l'agregation avec un mois `NULL`. En pratique, ajoutez un test
-  `dbt_expectations.expect_table_row_count_to_equal` entre
-  `fct_order_items` filtre et le resultat pour detecter cette perte
-  si elle survient un jour.
+  l'agregation avec un mois `NULL`.
+
+  **Mais "silencieusement" est le mot dangereux** : verifiez, ne
+  supposez pas. Le controle tient en une requete :
+
+  ```sql
+  select
+    (select count(*) from {{ ref('fct_order_items') }}
+      where order_status != 'cancelled')                    as en_entree,
+    (select count(*) from {{ ref('fct_order_items') }} oi
+      join {{ ref('dim_dates') }} d on d.date_day = cast(oi.ordered_at as date)
+     where oi.order_status != 'cancelled')                  as apres_join;
+  ```
+
+  Sur ce projet aujourd'hui : **159 et 159**, aucune perte — la date
+  spine couvre 2025-01-01 → 2027-08-03 alors que les commandes vont
+  de 2026-04-30 a 2026-07-28. Confortable, mais ce n'est vrai que
+  tant que `date_spine_start_date` reste en avance sur vos donnees.
+  Figez-le dans un test singulier (`tests/`) plutot que de le
+  reverifier a la main :
+
+  ```sql
+  -- tests/assert_no_order_items_outside_date_spine.sql
+  select oi.order_item_id, oi.ordered_at
+  from {{ ref('fct_order_items') }} oi
+  left join {{ ref('dim_dates') }} d on d.date_day = cast(oi.ordered_at as date)
+  where d.date_day is null
+  ```
+
+  Un test qui ne retourne aucune ligne aujourd'hui, et qui hurlera le
+  jour ou la spine prendra du retard.
 - Le filtre `order_status != 'cancelled'` est applique **avant**
   toute jointure/agregation, dans la CTE `order_items` — pas apres
   coup avec un `having`, plus couteux et moins lisible.
