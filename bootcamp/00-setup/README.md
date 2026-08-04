@@ -290,6 +290,57 @@ Apres un `dbt build` complet, vous devez voir 4 schemas : `raw`
 (votre source simulee), `dbt_jeff_seeds`, `dbt_jeff_staging`,
 `dbt_jeff_marts`.
 
+## 7. Repartir d'une base vide (indispensable pour suivre pas a pas)
+
+**Le code de ce repo est complet des le depart** — les 15 modeles
+existent avant que vous n'ayez lu une ligne. C'est le parti pris de ce
+bootcamp (auditer/etendre un projet realiste plutot que construire un
+jouet), mais ca cree un piege : si vous lancez un `dbt build` complet
+"pour voir", **toute la base est peuplee d'un coup** et les modules
+suivants perdent leur interet. Vous ne verrez plus le DAG se
+construire, seulement des objets recrees par-dessus eux-memes.
+
+Gardez cette commande sous la main pour revenir a l'etat de depart :
+
+```bash
+set -a && source .env && set +a
+docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" dbt_labs_postgres \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
+    drop schema if exists ${POSTGRES_SCHEMA}_staging cascade;
+    drop schema if exists ${POSTGRES_SCHEMA}_marts cascade;
+    drop schema if exists ${POSTGRES_SCHEMA}_seeds cascade;
+    drop schema if exists ${POSTGRES_SCHEMA}_dbt_test_failures cascade;"
+```
+
+**Ce qui est detruit** : uniquement vos schemas de dev, integralement
+reconstructibles par `dbt build` en 2 secondes. C'est precisement
+l'interet d'un schema par developpeur (section 6) : il est jetable.
+
+**Ce qui est preserve, et ne doit jamais etre supprime** :
+
+| Schema | Pourquoi le garder |
+|---|---|
+| `raw` | Votre systeme source simule. Le recreer impose de detruire le volume Docker |
+| `snapshots` | L'historique SCD2 accumule (module 06) — **non reconstructible**, c'est toute sa raison d'etre |
+
+Notez que `snapshots` echappe au prefixe : son `target_schema` est
+utilise litteralement, sans passer par `generate_schema_name`
+(module 06). Un renommage de `POSTGRES_SCHEMA` ne le deplace donc pas.
+
+### Verifier ou vous en etes a tout moment
+
+```bash
+docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" dbt_labs_postgres \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "select table_schema, table_name from information_schema.tables
+      where table_schema like '${POSTGRES_SCHEMA}%' order by 1, 2;"
+```
+
+Apres le [module 01](../01-fondamentaux/README.md), par exemple, vous
+devez avoir 2 seeds, 6 vues de staging et **seulement 2 marts**
+(`fct_orders` et `dim_customers`) — pas les 7. Si vous en voyez 7,
+c'est que vous avez lance un `dbt build` complet quelque part.
+
 **Reflexe general** : ne cherchez jamais vos tables au jugé. Le nom
 exact `schema.table` est ecrit dans la sortie de dbt apres chaque
 `START`/`OK`, et dans le SQL compile de `target/compiled/`.

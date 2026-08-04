@@ -141,6 +141,19 @@ encore mais avec un avertissement de depreciation.
 > lecture des sorties : [reference-cli.md](../reference-cli.md).
 > Gardez-la ouverte a cote pendant cette premiere execution.
 
+**Avant de commencer, partez d'une base vide.** Le code des 15
+modeles existe deja dans ce repo (parti pris du bootcamp), mais si la
+BASE est deja peuplee — parce que vous avez lance un `dbt build`
+complet — vous ne verrez rien de ce que cette section veut vous
+montrer. Recette de remise a zero :
+[module 00, section 7](../00-setup/README.md).
+
+Etat attendu au depart : seulement `raw` et `snapshots`.
+
+A la fin de cette section, vous aurez construit **une partie
+seulement** du projet — 2 seeds, 6 vues de staging, 2 marts sur 7.
+C'est normal et c'est le but : chaque module fait grandir le DAG.
+
 ### 0. Charger l'environnement
 
 ```bash
@@ -253,6 +266,35 @@ dbt ls --select +dim_customers --resource-type model
 **aussi les 80 tests et les sources**, et la reponse devient
 illisible.
 
+Verifiez ce que vous venez reellement de construire :
+
+```bash
+docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" dbt_labs_postgres \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "select table_schema, count(*) from information_schema.tables
+      where table_schema like '${POSTGRES_SCHEMA}%' group by 1 order by 1;"
+```
+
+```
+ dbt_jeff_marts   | 2      <- fct_orders et dim_customers SEULEMENT
+ dbt_jeff_seeds   | 2
+ dbt_jeff_staging | 6
+```
+
+**Deux marts sur sept.** `dim_products`, `dim_dates`,
+`fct_order_items`, `fct_returns` et `product_return_rates` n'existent
+pas encore — `dim_customers` n'en depend pas, dbt ne les a donc pas
+construits. C'est le DAG qui decide du perimetre, pas vous.
+
+Meme observation cote staging : `+dim_customers` a reconstruit
+**4 modeles `stg_*` sur 6**. `stg_products` et `stg_returns` ont ete
+ignores, pour la meme raison. Relisez la sortie de l'etape 3 : ils
+n'y figurent pas.
+
+C'est exactement ce que `ref()` achete. Sans lui, dbt n'aurait aucun
+moyen de savoir quoi construire ni dans quel ordre — vous devriez
+maintenir cette liste a la main.
+
 ### 4. `dbt test --select staging` — verifier
 
 ```bash
@@ -262,6 +304,30 @@ dbt test --select staging
 Execute les tests declares en YAML sur les modeles de staging.
 **Regle d'or : un test dbt echoue si sa requete SQL retourne au moins
 une ligne** — un test cherche des contre-exemples.
+
+```
+Done. PASS=53 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=53
+```
+
+53 tests pour 6 modeles, ca surprend. Decomposons plutot que de
+deviner :
+
+```bash
+dbt ls --select staging --resource-type test | wc -l        # 50
+dbt ls --select staging --resource-type test | grep -c source_   # 23
+```
+
+- **23 tests de sources** : `--select staging` selectionne aussi les
+  tests declares sur les tables `raw.*` que ces modeles consomment
+  (dans `_staging__sources.yml`). C'est voulu — on veut savoir que la
+  source est cassee avant d'accuser le modele.
+- **27 tests de modeles** : ceux de `_staging__models.yml`.
+- **+ 3 unit tests** = 53. Ils n'apparaissent pas dans le `dbt ls`
+  ci-dessus : leur type de ressource est `unit_test`, pas `test`.
+  Pour les voir : `dbt ls --resource-type unit_test`.
+
+Retenez le reflexe : quand un compte vous surprend, **listez** au
+lieu de supposer. `dbt ls` est gratuit et n'ecrit rien.
 
 ### En pratique : `dbt build` plutot que run puis test
 
