@@ -1,0 +1,76 @@
+version: 2
+
+# Unit tests dbt natifs (dbt-core >= 1.8) : on fige des lignes d'entree
+# a la main et on verifie la sortie EXACTE du modele, sans toucher a
+# l'entrepot (`dbt test --select test_type:unit`, tres rapide, ideal
+# en CI sur chaque commit). A ne pas confondre avec les tests
+# generiques (`unique`, `not_null`, ...) qui, eux, executent une
+# requete sur les vraies donnees materialisees.
+#
+# Piege classique : toute colonne du modele absente de `expect.rows`
+# est comparee a NULL. Il faut donc lister TOUTES les colonnes de
+# sortie -- y compris les colonnes techniques comme loaded_at, qu'on
+# fige avec `overrides.macros` pour garder le test deterministe.
+
+unit_tests:
+  - name: test_stg_order_items_computes_line_amount
+    description: "line_amount_cents doit valoir quantity * unit_price_cents."
+    model: stg_order_items
+    overrides:
+      macros:
+        dbt.current_timestamp: "'2026-01-01 00:00:00'::timestamp"
+    given:
+      - input: source('raw', 'order_items')
+        rows:
+          - { order_item_id: 9001, order_id: 1, product_id: 1, quantity: 3, unit_price_cents: 1000 }
+          - { order_item_id: 9002, order_id: 1, product_id: 2, quantity: 1, unit_price_cents: 2550 }
+    expect:
+      rows:
+        - { order_item_id: 9001, order_id: 1, product_id: 1, quantity: 3, unit_price_cents: 1000, unit_price: '10.00', line_amount_cents: 3000, loaded_at: '2026-01-01 00:00:00' }
+        - { order_item_id: 9002, order_id: 1, product_id: 2, quantity: 1, unit_price_cents: 2550, unit_price: '25.50', line_amount_cents: 2550, loaded_at: '2026-01-01 00:00:00' }
+
+  - name: test_stg_customers_normalizes_name_and_email
+    description: "customer_name concatene prenom+nom ; customer_email est toujours en minuscules."
+    model: stg_customers
+    overrides:
+      macros:
+        dbt.current_timestamp: "'2026-01-01 00:00:00'::timestamp"
+    given:
+      - input: source('raw', 'customers')
+        rows:
+          - customer_id: 9001
+            first_name: 'Jean'
+            last_name: 'Dupont'
+            email: 'Jean.DUPONT@Example.com'
+            country_code: 'FR'
+            customer_segment: 'standard'
+            created_at: '2026-01-01 00:00:00'
+            updated_at: '2026-01-01 00:00:00'
+    expect:
+      rows:
+        - customer_id: 9001
+          first_name: 'Jean'
+          last_name: 'Dupont'
+          customer_name: 'Jean Dupont'
+          customer_email: 'jean.dupont@example.com'
+          country_code: 'FR'
+          customer_segment: 'standard'
+          created_at: '2026-01-01 00:00:00'
+          updated_at: '2026-01-01 00:00:00'
+          loaded_at: '2026-01-01 00:00:00'
+
+  - name: test_stg_payments_keeps_all_statuses
+    description: "Les paiements echoues/rembourses ne doivent pas etre filtres au staging (le filtrage est une decision de mart, pas de staging)."
+    model: stg_payments
+    overrides:
+      macros:
+        dbt.current_timestamp: "'2026-01-01 00:00:00'::timestamp"
+    given:
+      - input: source('raw', 'payments')
+        rows:
+          - { payment_id: 9001, order_id: 1, payment_method: 'credit_card', amount_cents: 1000, payment_status: 'success', paid_at: '2026-01-01 00:00:00' }
+          - { payment_id: 9002, order_id: 2, payment_method: 'paypal', amount_cents: 2000, payment_status: 'failed', paid_at: '2026-01-02 00:00:00' }
+    expect:
+      rows:
+        - { payment_id: 9001, order_id: 1, payment_method: 'credit_card', payment_status: 'success', amount_cents: 1000, amount: '10.00', paid_at: '2026-01-01 00:00:00', loaded_at: '2026-01-01 00:00:00' }
+        - { payment_id: 9002, order_id: 2, payment_method: 'paypal', payment_status: 'failed', amount_cents: 2000, amount: '20.00', paid_at: '2026-01-02 00:00:00', loaded_at: '2026-01-01 00:00:00' }

@@ -214,6 +214,15 @@ logs/
 *.duckdb.wal
 profiles.yml
 
+# bootcamp-2 : donnees generees localement (regenerables via
+# scripts/generate_synthetic_trips.py), trop volumineuses pour git
+bootcamp-2-scale-orchestration/nyc_taxi_dbt/data/
+# ce profiles.yml ne contient aucun secret (DuckDB = fichier local) et
+# doit etre commite pour le conteneur Airflow -- exception a la regle
+# generale "profiles.yml" plus haut
+!bootcamp-2-scale-orchestration/nyc_taxi_dbt/profiles.yml
+bootcamp-2-scale-orchestration/airflow/logs/
+
 
 # Ruff stuff:
 

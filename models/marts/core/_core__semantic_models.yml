@@ -1,0 +1,63 @@
+version: 2
+
+# dbt Semantic Layer / MetricFlow (module 08). Ces definitions sont
+# validees par `dbt parse` (dbt-semantic-interfaces). Pour interroger
+# les metriques (mf query / dbt sl query), il faut en plus installer
+# `dbt-metricflow` (non requis pour ce bootcamp, voir le module 08).
+
+semantic_models:
+  - name: sem_fct_orders
+    description: "Modele semantique de la table de faits des commandes."
+    model: ref('fct_orders')
+    defaults:
+      agg_time_dimension: ordered_at
+
+    entities:
+      - name: order
+        type: primary
+        expr: order_id
+      - name: customer
+        type: foreign
+        expr: customer_id
+
+    dimensions:
+      - name: ordered_at
+        type: time
+        type_params:
+          time_granularity: day
+      - name: order_status
+        type: categorical
+
+    measures:
+      - name: order_count
+        agg: count
+        expr: order_id
+      - name: total_revenue_cents
+        description: "Somme des paiements encaisses, en centimes."
+        agg: sum
+        expr: total_paid_cents
+      - name: total_items_sold
+        agg: sum
+        expr: total_quantity
+
+metrics:
+  - name: order_count
+    label: "Nombre de commandes"
+    type: simple
+    type_params:
+      measure: order_count
+
+  - name: total_revenue
+    label: "Chiffre d'affaires encaisse (centimes)"
+    description: "On garde l'unite 'centimes' au niveau metrique pour la precision d'agregation ; la conversion en unite monetaire se fait a la restitution."
+    type: simple
+    type_params:
+      measure: total_revenue_cents
+
+  - name: average_order_value
+    label: "Panier moyen (centimes)"
+    description: "Ratio entre deux METRIQUES (pas des measures) : total_revenue / order_count."
+    type: ratio
+    type_params:
+      numerator: total_revenue
+      denominator: order_count

@@ -1,69 +1,62 @@
 # Fichier de configuration des profils dbt
-# Ce fichier doit normalement être placé dans ~/.dbt/profiles.yml
-# Il contient les informations de connexion à votre base de données
+# Ce fichier doit être copié vers ~/.dbt/profiles.yml (JAMAIS dans le repo git)
+#
+# Bonne pratique "expert" : ne jamais écrire de secret en clair dans ce
+# fichier. On utilise env_var() pour lire les valeurs depuis
+# l'environnement (ici, alimenté par le .env du projet à la racine).
+#
+# Avant de lancer dbt :
+#   set -a && source .env && set +a
+#   dbt debug
 
 dbt_labs:
   target: dev
   outputs:
     dev:
-      # Configuration pour PostgreSQL
       type: postgres
-      host: localhost
-      port: 5432
-      user: votre_user
-      password: votre_password
-      dbname: votre_database
-      schema: dbt_dev
+      host: "{{ env_var('POSTGRES_HOST', 'localhost') }}"
+      port: "{{ env_var('POSTGRES_PORT', '5432') | as_number }}"
+      user: "{{ env_var('POSTGRES_USER') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD') }}"
+      dbname: "{{ env_var('POSTGRES_DB') }}"
+      schema: "{{ env_var('POSTGRES_SCHEMA', 'dbt_dev') }}"
       threads: 4
       keepalives_idle: 0
 
     prod:
       type: postgres
-      host: prod-server.example.com
-      port: 5432
-      user: votre_user_prod
-      password: votre_password_prod
-      dbname: votre_database_prod
-      schema: dbt_prod
+      host: "{{ env_var('POSTGRES_HOST') }}"
+      port: "{{ env_var('POSTGRES_PORT', '5432') | as_number }}"
+      user: "{{ env_var('POSTGRES_USER') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD') }}"
+      dbname: "{{ env_var('POSTGRES_DB') }}"
+      schema: "dbt_prod"
       threads: 8
       keepalives_idle: 0
 
-# Exemple de configuration pour BigQuery
-# dbt_labs:
-#   target: dev
-#   outputs:
-#     dev:
-#       type: bigquery
-#       method: service-account
-#       project: votre-project-id
-#       dataset: dbt_dev
-#       threads: 4
-#       keyfile: /path/to/service-account.json
-#       timeout_seconds: 300
-#       location: EU
-#       priority: interactive
-
-# Exemple de configuration pour Snowflake
-# dbt_labs:
-#   target: dev
-#   outputs:
-#     dev:
-#       type: snowflake
-#       account: votre-account
-#       user: votre_user
-#       password: votre_password
-#       role: votre_role
-#       database: VOTRE_DATABASE
-#       warehouse: VOTRE_WAREHOUSE
-#       schema: DBT_DEV
-#       threads: 4
-#       client_session_keep_alive: False
-
-# Exemple de configuration pour DuckDB (pour tester localement)
-# dbt_labs:
-#   target: dev
-#   outputs:
-#     dev:
-#       type: duckdb
-#       path: dbt.duckdb
-#       threads: 4
+# --- Autres adaptateurs (a titre d'exemple, voir bootcamp/00-setup) ---
+#
+# BigQuery :
+#   type: bigquery
+#   method: service-account
+#   project: votre-project-id
+#   dataset: dbt_dev
+#   threads: 4
+#   keyfile: /path/to/service-account.json
+#   location: EU
+#
+# Snowflake :
+#   type: snowflake
+#   account: votre-account
+#   user: "{{ env_var('SNOWFLAKE_USER') }}"
+#   password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+#   role: votre_role
+#   database: VOTRE_DATABASE
+#   warehouse: VOTRE_WAREHOUSE
+#   schema: DBT_DEV
+#   threads: 4
+#
+# DuckDB (pratique pour tester sans infra) :
+#   type: duckdb
+#   path: dbt.duckdb
+#   threads: 4

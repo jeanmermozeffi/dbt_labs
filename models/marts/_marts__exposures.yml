@@ -1,0 +1,35 @@
+version: 2
+
+exposures:
+  - name: executive_revenue_dashboard
+    label: "Tableau de bord revenu (direction)"
+    type: dashboard
+    maturity: high
+    url: https://bi.example.com/dashboards/executive-revenue
+    description: >
+      Dashboard BI (exemple pedagogique) consommant fct_orders,
+      dim_customers et dim_dates pour le suivi du chiffre d'affaires,
+      du panier moyen et de la valeur vie client. Declarer une
+      exposure permet a `dbt run --select +exposure:executive_revenue_dashboard`
+      de rebuilder exactement ce dont ce dashboard depend, et de voir
+      l'impact d'un changement de modele avant de casser le dashboard.
+    depends_on:
+      - ref('fct_orders')
+      - ref('dim_customers')
+      - ref('dim_dates')
+    owner:
+      name: "Data Platform Team"
+      email: data-platform@example.com
+
+  - name: product_return_rate_report
+    label: "Rapport taux de retour produit"
+    type: analysis
+    maturity: medium
+    description: >
+      Rapport hebdomadaire (module 12 - capstone) sur le taux de
+      retour par produit et par categorie.
+    depends_on:
+      - ref('product_return_rates')
+    owner:
+      name: "Data Platform Team"
+      email: data-platform@example.com

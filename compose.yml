@@ -1,0 +1,41 @@
+services:
+    dbt_labs_postgres:
+        image: postgres:15
+        container_name: dbt_labs_postgres
+        restart: always
+        ports:
+            - "5432:5432"
+        environment:
+            POSTGRES_DB: ${POSTGRES_DB}
+            POSTGRES_USER: ${POSTGRES_USER}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+        command: >
+            postgres
+              -c wal_level=logical
+              -c max_wal_senders=10
+              -c max_replication_slots=10
+              -c max_connections=200
+        volumes:
+            - ./postgres/init-scripts/:/docker-entrypoint-initdb.d/
+            - dbt-labs-pg-data:/var/lib/postgresql/data
+        networks:
+            - rcd_net
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+            start_period: 10s
+
+
+volumes:
+    dbt-labs-pg-data:
+        name: dbt-labs-pg-data
+
+
+networks:
+  rcd_net:
+    # internal: true coupait toute routabilite host<->conteneur, y
+    # compris le port publie (5432:5432) : dbt, lance depuis l'hote,
+    # ne pouvait plus jamais se connecter. Voir bootcamp/00-setup.
+    name: dbt_labs_net

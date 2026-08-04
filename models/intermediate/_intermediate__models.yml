@@ -1,0 +1,28 @@
+version: 2
+
+models:
+  - name: int_order_amounts
+    description: >
+      Agregation des lignes de commande (stg_order_items)
+      au grain commande : nombre d'articles, quantite totale, montant.
+      Modele ephemeral (voir dbt_project.yml) : n'existe jamais comme
+      objet en base, il est inline en CTE dans fct_orders.
+    access: private
+    columns:
+      - name: order_id
+        tests: [unique, not_null]
+
+  - name: int_payments_pivoted
+    description: >
+      Paiements pivotes par moyen de paiement, au grain commande.
+      Illustre dbt_utils.pivot() + une macro "compile-time query"
+      (get_payment_methods) pour piloter dynamiquement le pivot.
+    access: private
+    columns:
+      - name: order_id
+        tests: [unique, not_null]
+      - name: total_amount_cents
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0

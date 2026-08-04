@@ -1,0 +1,5 @@
+payment_method,payment_method_label,processing_fee_pct
+credit_card,Carte bancaire,0.015
+paypal,PayPal,0.029
+bank_transfer,Virement bancaire,0.000
+gift_card,Carte cadeau,0.000

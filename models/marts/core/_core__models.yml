@@ -1,0 +1,144 @@
+version: 2
+
+models:
+  - name: dim_customers
+    description: "Dimension client, grain = 1 ligne par client. Interface publique du mart core."
+    access: public
+    config:
+      # Demonstration de grants dbt : a chaque run, dbt s'assure que
+      # le role bi_reader (cree dans postgres/init-scripts) a le droit
+      # SELECT sur cette table. Voir bootcamp/07-sources-freshness-exposures-contracts.
+      grants:
+        select: ['bi_reader']
+    columns:
+      - name: customer_id
+        description: "Cle primaire de la dimension."
+        tests: [unique, not_null]
+      - name: customer_email
+        tests: [not_null]
+      - name: customer_status
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['active', 'never_ordered']
+      - name: lifetime_value_cents
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+
+  - name: dim_products
+    description: "Dimension produit, grain = 1 ligne par produit. Interface publique du mart core."
+    access: public
+    columns:
+      - name: product_id
+        tests: [unique, not_null]
+      - name: category
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Electronics', 'Books', 'Home & Kitchen', 'Sports', 'Toys']
+
+  - name: dim_dates
+    description: >
+      Dimension calendaire generee via dbt_utils.date_spine. Sert
+      aussi de "time spine" pour le Semantic Layer / MetricFlow
+      (module 08) : requis des qu'on definit des metrics.
+    access: public
+    time_spine:
+      standard_granularity_column: date_day
+    columns:
+      - name: date_day
+        granularity: day
+        tests: [unique, not_null]
+
+  - name: fct_orders
+    description: >
+      Table de faits, grain = 1 ligne par commande. Materialisation
+      incrementale (delete+insert sur updated_at). Contrat de donnees
+      applique (voir bootcamp/07) : toute PR qui casse la forme de
+      cette table echoue a la compilation, avant meme d'atteindre
+      l'entrepot.
+    access: public
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: order_id
+        data_type: integer
+        constraints:
+          - type: primary_key
+          - type: not_null
+      - name: customer_id
+        data_type: integer
+        constraints:
+          - type: not_null
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_id
+      - name: order_status
+        data_type: text
+        constraints:
+          - type: not_null
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['placed', 'shipped', 'completed', 'returned', 'cancelled']
+      - name: ordered_at
+        data_type: timestamp
+        constraints:
+          - type: not_null
+      - name: updated_at
+        data_type: timestamp
+        constraints:
+          - type: not_null
+      - name: item_count
+        data_type: bigint
+        constraints:
+          - type: check
+            expression: "item_count >= 0"
+      - name: total_quantity
+        data_type: bigint
+      - name: subtotal_cents
+        data_type: bigint
+        tests:
+          - not_negative
+      - name: subtotal
+        data_type: numeric(12, 2)
+      - name: total_paid_cents
+        data_type: bigint
+        tests:
+          - not_negative
+      - name: total_paid
+        data_type: numeric(12, 2)
+      - name: has_successful_payment
+        data_type: boolean
+      - name: credit_card_amount_cents
+        data_type: bigint
+      - name: paypal_amount_cents
+        data_type: bigint
+      - name: bank_transfer_amount_cents
+        data_type: bigint
+      - name: gift_card_amount_cents
+        data_type: bigint
+
+  - name: fct_order_items
+    description: "Table de faits, grain = 1 ligne par (commande x produit). Incrementale."
+    access: public
+    columns:
+      - name: order_item_id
+        tests: [unique, not_null]
+      - name: order_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('fct_orders')
+                field: order_id
+      - name: product_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_products')
+                field: product_id

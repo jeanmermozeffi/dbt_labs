@@ -1,0 +1,45 @@
+version: 2
+
+semantic_models:
+  - name: sem_fct_returns
+    description: "Modele semantique pour la table de faits des retours."
+    model: ref('fct_returns')
+    defaults:
+      agg_time_dimension: returned_at
+
+    entities:
+      - name: return
+        type: primary
+        expr: return_id
+      - name: order_item
+        type: foreign
+        expr: order_item_id
+
+    dimensions:
+      - name: returned_at
+        type: time
+        type_params:
+          time_granularity: day
+      - name: reason
+        type: categorical
+
+    measures:
+      - name: return_count
+        agg: count
+        expr: return_id
+      - name: total_refunded_cents
+        agg: sum
+        expr: refund_amount_cents
+
+metrics:
+  - name: return_count
+    label: "Nombre de retours"
+    type: simple
+    type_params:
+      measure: return_count
+
+  - name: total_refunded
+    label: "Montant total rembourse (centimes)"
+    type: simple
+    type_params:
+      measure: total_refunded_cents

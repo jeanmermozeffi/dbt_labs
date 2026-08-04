@@ -1,0 +1,60 @@
+version: 2
+
+models:
+  - name: fct_returns
+    description: >
+      Table de faits, grain = 1 ligne par retour. Incrementale
+      (strategie append, module 05) : un retour est un evenement
+      immuable.
+    columns:
+      - name: return_id
+        tests: [unique, not_null]
+      - name: order_item_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('fct_order_items')
+                field: order_item_id
+      - name: refund_amount_cents
+        tests:
+          - not_negative
+
+  - name: product_return_rates
+    description: >
+      Taux de retour par produit : items_returned / items_sold.
+      Grain = 1 ligne par produit. Interface publique du groupe
+      "returns" (voir models/groups.yml). Contrat de donnees applique
+      (bootcamp/07).
+    access: public
+    config:
+      contract:
+        enforced: true
+      grants:
+        select: ['bi_reader']
+    columns:
+      - name: product_id
+        data_type: integer
+        constraints:
+          - type: primary_key
+          - type: not_null
+      - name: product_name
+        data_type: text
+      - name: category
+        data_type: text
+      - name: items_sold
+        data_type: bigint
+      - name: items_returned
+        data_type: bigint
+      - name: return_rate
+        data_type: numeric(6, 4)
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: refunded_amount_cents
+        data_type: bigint
+        tests:
+          - not_negative
+      - name: refunded_amount
+        data_type: numeric(12, 2)

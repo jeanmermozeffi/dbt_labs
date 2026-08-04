@@ -25,22 +25,49 @@ models:
   dbt_labs:
     # Configuration par défaut pour tous les modèles
     +materialized: view
+    # Un seul "domaine" pour ce projet pedagogique -> un seul groupe.
+    # Voir bootcamp/10-gouvernance-architecture-multiprojets.
+    +group: core
 
-    # Exemple de configuration par sous-dossiers
     staging:
       +materialized: view
       +schema: staging
 
+    intermediate:
+      # Couche de travail : jamais interrogée par les BI tools,
+      # donc pas besoin de matérialiser en table/vue -> ephemeral
+      # (inlinée comme CTE dans les modèles qui la consomment).
+      +materialized: ephemeral
+
     marts:
       +materialized: table
       +schema: marts
+      core:
+        +group: core
+      returns:
+        # Domaine distinct (module 10 - gouvernance/multi-projets) :
+        # son propre groupe, pour illustrer les access modifiers entre
+        # groupes sur un seul projet.
+        +group: returns
 
 # Configuration des seeds
 seeds:
   dbt_labs:
     +schema: seeds
+    countries:
+      +column_types:
+        country_code: varchar(2)
+    payment_methods:
+      +column_types:
+        payment_method: varchar(20)
+        processing_fee_pct: numeric(5, 3)
 
 # Configuration des snapshots
 snapshots:
   dbt_labs:
     +target_schema: snapshots
+
+# Variables globales, surchargeables via --vars ou dbt_project.yml des
+# packages consommateurs (voir bootcamp/04-jinja-macros-avancees)
+vars:
+  date_spine_start_date: '2025-01-01'

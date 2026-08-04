@@ -1,0 +1,11 @@
+version: 2
+
+groups:
+  - name: core
+    owner:
+      name: "Data Platform Team"
+      email: data-platform@example.com
+  - name: returns
+    owner:
+      name: "Customer Experience Team"
+      email: cx-analytics@example.com

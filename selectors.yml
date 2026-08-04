@@ -1,0 +1,17 @@
+selectors:
+  - name: ci_changed
+    description: >
+      Selecteur reutilisable pour le slim CI : les modeles modifies
+      depuis le manifest de reference, plus tous leurs enfants.
+      Usage : dbt build --selector ci_changed --state ./state
+    definition:
+      method: state
+      value: modified
+      children: true
+
+  - name: returns_domain
+    description: "Le domaine 'returns' (module 12) et tout ce qui l'alimente."
+    definition:
+      method: path
+      value: models/marts/returns
+      parents: true

@@ -1,30 +1,45 @@
 # Projet dbt Labs - Apprentissage dbt
 
+> **Bootcamp complet niveau expert disponible dans [`bootcamp/`](bootcamp/README.md)** —
+> 13 modules (fondamentaux → gouvernance multi-projets → projet capstone),
+> theorie + code reel valide + exercices + solutions commentees, construits
+> sur le projet e-commerce de ce repo. C'est le point d'entree recommande.
+>
+> **Suite "a l'echelle" dans [`bootcamp-2-scale-orchestration/`](bootcamp-2-scale-orchestration/README.md)** —
+> memes principes appliques a des dizaines de millions de lignes reelles
+> (schema NYC TLC Taxi) sur DuckDB, avec orchestration Airflow +
+> astronomer-cosmos. A faire apres le premier bootcamp.
+
 Ce projet est un template standard pour apprendre dbt (Data Build Tool). Il contient une structure complète avec des exemples de modèles, tests, et configurations.
 
 ## Structure du projet
 
 ```
 dbt_labs/
-├── analyses/          # Analyses ad-hoc (requêtes SQL non matérialisées)
-├── data/              # Fichiers CSV pour les seeds
-│   └── countries.csv
-├── macros/            # Macros réutilisables
-│   └── cents_to_dollars.sql
-├── models/            # Modèles SQL
-│   ├── staging/       # Modèles de staging (nettoyage initial)
-│   │   ├── schema.yml
-│   │   ├── stg_customers.sql
-│   │   └── stg_orders.sql
-│   └── marts/         # Modèles finaux (tables agrégées)
-│       ├── schema.yml
-│       └── customer_orders.sql
-├── snapshots/         # Snapshots pour le suivi historique
-├── tests/             # Tests personnalisés
-│   └── assert_positive_value.sql
-├── dbt_project.yml    # Configuration principale du projet
-└── profiles.yml.example # Exemple de configuration de connexion
+├── bootcamp/                # Bootcamp dbt niveau expert (13 modules) — voir bootcamp/README.md
+├── postgres/init-scripts/   # Schema "raw" simule (systeme source e-commerce)
+├── analyses/                # Analyses ad-hoc (requêtes SQL non matérialisées)
+├── data/                    # Seeds (donnees de reference statiques)
+│   ├── countries.csv
+│   └── payment_methods.csv
+├── macros/                  # Macros réutilisables + tests génériques custom
+│   └── generic_tests/
+├── models/
+│   ├── staging/              # stg_* : renommage/cast 1-pour-1 depuis les sources
+│   ├── intermediate/         # int_* : agrégations/pivots (ephemeral)
+│   ├── marts/core/           # dim_*, fct_* : modèle en étoile (groupe "core")
+│   └── marts/returns/        # domaine retours (groupe "returns")
+├── snapshots/                # SCD Type 2
+├── tests/                    # Tests singuliers
+├── .github/workflows/        # CI GitHub Actions (build + slim CI)
+├── dbt_project.yml
+├── packages.yml
+├── selectors.yml
+└── profiles.yml.example
 ```
+
+Pour une visite guidée complète de cette structure et de chaque
+concept dbt qu'elle illustre, suivez le [bootcamp](bootcamp/README.md).
 
 ## Prérequis
 

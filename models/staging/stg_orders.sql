@@ -1,18 +1,23 @@
--- Modèle de staging pour les commandes
--- Ce modèle nettoie et standardise les données brutes des commandes
+-- Modele de staging : commandes
 
 with source as (
+
     select * from {{ source('raw', 'orders') }}
+
 ),
 
 renamed as (
+
     select
-        id as order_id,
+        order_id,
         customer_id,
-        order_date,
-        amount as order_amount,
-        current_timestamp() as loaded_at
+        order_status,
+        ordered_at,
+        updated_at,
+        {{ dbt.current_timestamp() }} as loaded_at
+
     from source
+
 )
 
 select * from renamed

@@ -1,0 +1,151 @@
+version: 2
+
+sources:
+    - name: raw
+      description: >
+          Donnees brutes du systeme operationnel e-commerce, simulees par
+          postgres/init-scripts/01_raw_schema.sql (monte dans le conteneur
+          Postgres au premier demarrage). dbt lit ce schema en lecture
+          seule, jamais en ecriture : c'est la frontiere entre "le monde
+          applicatif" et "le monde analytique".
+      schema: raw
+
+      tables:
+          - name: customers
+            description: "Un enregistrement par client cote systeme applicatif."
+              # _loaded_at = horodatage technique d'extraction, PAS updated_at
+              # (horodatage metier). Un client cree il y a 6 mois et jamais
+              # modifie depuis ne doit pas faire hurler la freshness : seule
+              # la fraicheur du PIPELINE nous interesse ici.
+            loaded_at_field: _loaded_at
+            freshness:
+                warn_after: { count: 36, period: hour }
+                error_after: { count: 72, period: hour }
+            columns:
+                - name: customer_id
+                  description: "Cle primaire technique du client."
+                  tests:
+                      - unique
+                      - not_null
+                - name: email
+                  tests:
+                      - not_null
+                - name: country_code
+                  tests:
+                      - relationships:
+                            arguments:
+                                to: ref('countries')
+                                field: country_code
+                - name: customer_segment
+                  tests:
+                      - accepted_values:
+                            arguments:
+                                values: ['standard', 'vip']
+
+          - name: products
+            description: "Catalogue produit."
+            loaded_at_field: _loaded_at
+            freshness:
+                warn_after: { count: 36, period: hour }
+                error_after: { count: 72, period: hour }
+            columns:
+                - name: product_id
+                  tests:
+                      - unique
+                      - not_null
+                - name: unit_price_cents
+                  tests:
+                      - dbt_expectations.expect_column_values_to_be_between:
+                            arguments:
+                                min_value: 0
+                                strictly: false
+
+          - name: orders
+            description: "Une commande = un panier valide par un client a un instant donne."
+              # _loaded_at (technique) et NON updated_at (metier) : une
+              # commande finalisee il y a 3 mois et jamais retouchee est
+              # parfaitement normale, elle ne dit rien de la sante du
+              # pipeline d'ingestion. Voir module 07.
+            loaded_at_field: _loaded_at
+            freshness:
+                warn_after: { count: 36, period: hour }
+                error_after: { count: 72, period: hour }
+            columns:
+                - name: order_id
+                  tests:
+                      - unique
+                      - not_null
+                - name: customer_id
+                  tests:
+                      - relationships:
+                            arguments:
+                                to: source('raw', 'customers')
+                                field: customer_id
+
+          - name: order_items
+            description: "Lignes de commande (grain: 1 produit x 1 commande)."
+            loaded_at_field: _loaded_at
+            freshness:
+                warn_after: { count: 36, period: hour }
+                error_after: { count: 72, period: hour }
+            columns:
+                - name: order_item_id
+                  tests:
+                      - unique
+                      - not_null
+                - name: order_id
+                  tests:
+                      - relationships:
+                            arguments:
+                                to: source('raw', 'orders')
+                                field: order_id
+                - name: product_id
+                  tests:
+                      - relationships:
+                            arguments:
+                                to: source('raw', 'products')
+                                field: product_id
+                - name: quantity
+                  tests:
+                      - dbt_expectations.expect_column_values_to_be_between:
+                            arguments:
+                                min_value: 1
+
+          - name: payments
+            description: "Un paiement par commande."
+              # _loaded_at (technique) et NON paid_at (metier).
+            loaded_at_field: _loaded_at
+            freshness:
+                warn_after: { count: 36, period: hour }
+                error_after: { count: 72, period: hour }
+            columns:
+                - name: payment_id
+                  tests:
+                      - unique
+                      - not_null
+                - name: order_id
+                  tests:
+                      - unique
+                      - relationships:
+                            arguments:
+                                to: source('raw', 'orders')
+                                field: order_id
+
+          - name: returns
+            description: "Retours produits, rattaches a une ligne de commande (module 12 - capstone)."
+              # _loaded_at (technique) et NON returned_at (metier).
+            loaded_at_field: _loaded_at
+            freshness:
+                warn_after: { count: 36, period: hour }
+                error_after: { count: 72, period: hour }
+            columns:
+                - name: return_id
+                  tests:
+                      - unique
+                      - not_null
+                - name: order_item_id
+                  tests:
+                      - relationships:
+                            arguments:
+                                to: source('raw', 'order_items')
+                                field: order_item_id

@@ -1,0 +1,200 @@
+name: dbt CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  # ---------------------------------------------------------------
+  # Job 1 : build complet. Tourne sur push main ET sur chaque PR.
+  # Sur main, publie aussi le manifest.json en artifact -> c'est ce
+  # manifest que le job "slim_ci_on_pr" ira chercher.
+  # ---------------------------------------------------------------
+  dbt_build_and_test:
+    runs-on: ubuntu-latest
+
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: dbt_labs_ci
+      POSTGRES_USER: dbt_ci
+      POSTGRES_PASSWORD: dbt_ci_password
+      POSTGRES_SCHEMA: ci_${{ github.run_id }}
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: dbt_labs_ci
+          POSTGRES_USER: dbt_ci
+          POSTGRES_PASSWORD: dbt_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U dbt_ci -d dbt_labs_ci"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer dbt
+        run: pip install "dbt-postgres>=1.9,<2.0"
+
+      - name: Charger le schema raw (simule le systeme source)
+        run: |
+          PGPASSWORD="$POSTGRES_PASSWORD" psql \
+            -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
+            -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+            -f postgres/init-scripts/01_raw_schema.sql
+
+      - name: Ecrire le profiles.yml de CI
+        run: |
+          mkdir -p ./ci_profile
+          cat > ./ci_profile/profiles.yml <<'EOF'
+          dbt_labs:
+            target: ci
+            outputs:
+              ci:
+                type: postgres
+                host: "{{ env_var('POSTGRES_HOST') }}"
+                port: "{{ env_var('POSTGRES_PORT') | as_number }}"
+                user: "{{ env_var('POSTGRES_USER') }}"
+                password: "{{ env_var('POSTGRES_PASSWORD') }}"
+                dbname: "{{ env_var('POSTGRES_DB') }}"
+                schema: "{{ env_var('POSTGRES_SCHEMA') }}"
+                threads: 4
+          EOF
+        # schema ci_<run_id> : chaque run CI est isole dans son propre
+        # schema, jamais de collision entre deux PR qui tournent en meme temps.
+
+      - name: dbt deps
+        run: dbt deps
+        env:
+          DBT_PROFILES_DIR: ./ci_profile
+
+      - name: dbt seed
+        run: dbt seed
+        env:
+          DBT_PROFILES_DIR: ./ci_profile
+
+      - name: dbt build (run + test)
+        run: dbt build
+        env:
+          DBT_PROFILES_DIR: ./ci_profile
+
+      - name: dbt snapshot
+        run: dbt snapshot
+        env:
+          DBT_PROFILES_DIR: ./ci_profile
+
+      - name: Publier le manifest (pour le slim CI des prochaines PR)
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-manifest-main
+          path: target/manifest.json
+          retention-days: 30
+
+  # ---------------------------------------------------------------
+  # Job 2 : "slim CI". Ne (re)construit que ce qui a change depuis le
+  # dernier run de main (state:modified+), en comparant au manifest
+  # publie par le job ci-dessus. Sur un gros projet (des centaines de
+  # modeles), c'est la difference entre 2 minutes et 40 minutes de CI.
+  # Voir bootcamp/09-orchestration-ci-cd.
+  # ---------------------------------------------------------------
+  slim_ci_on_pr:
+    if: github.event_name == 'pull_request'
+    needs: dbt_build_and_test
+    runs-on: ubuntu-latest
+
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: dbt_labs_ci
+      POSTGRES_USER: dbt_ci
+      POSTGRES_PASSWORD: dbt_ci_password
+      POSTGRES_SCHEMA: ci_slim_${{ github.run_id }}
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: dbt_labs_ci
+          POSTGRES_USER: dbt_ci
+          POSTGRES_PASSWORD: dbt_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U dbt_ci -d dbt_labs_ci"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Action tierce (pas fournie par GitHub) : les artifacts GitHub
+      # natifs ne sont telechargeables que DANS le meme run. Pour
+      # recuperer l'artifact d'un run precedent sur une autre branche,
+      # il faut un outil comme celui-ci (ou stocker le manifest sur
+      # S3/GCS soi-meme, ce que font beaucoup d'equipes en prod).
+      - name: Recuperer le dernier manifest de main
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: dbt_ci.yml
+          branch: main
+          name: dbt-manifest-main
+          path: state/
+          if_no_artifact_found: warn
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install "dbt-postgres>=1.9,<2.0"
+
+      - name: Charger le schema raw
+        run: |
+          PGPASSWORD="$POSTGRES_PASSWORD" psql \
+            -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
+            -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+            -f postgres/init-scripts/01_raw_schema.sql
+
+      - name: Ecrire le profiles.yml de CI
+        run: |
+          mkdir -p ./ci_profile
+          cat > ./ci_profile/profiles.yml <<'EOF'
+          dbt_labs:
+            target: ci
+            outputs:
+              ci:
+                type: postgres
+                host: "{{ env_var('POSTGRES_HOST') }}"
+                port: "{{ env_var('POSTGRES_PORT') | as_number }}"
+                user: "{{ env_var('POSTGRES_USER') }}"
+                password: "{{ env_var('POSTGRES_PASSWORD') }}"
+                dbname: "{{ env_var('POSTGRES_DB') }}"
+                schema: "{{ env_var('POSTGRES_SCHEMA') }}"
+                threads: 4
+          EOF
+
+      - run: dbt deps
+        env:
+          DBT_PROFILES_DIR: ./ci_profile
+
+      - run: dbt seed
+        env:
+          DBT_PROFILES_DIR: ./ci_profile
+
+      - name: dbt build --select state:modified+
+        run: dbt build --select "state:modified+" --state ./state
+        env:
+          DBT_PROFILES_DIR: ./ci_profile

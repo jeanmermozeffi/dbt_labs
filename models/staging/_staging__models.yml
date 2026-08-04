@@ -1,0 +1,102 @@
+version: 2
+
+models:
+    - name: stg_customers
+      description: "Clients, renommes/standardises depuis raw.customers."
+      columns:
+          - name: customer_id
+            tests: [unique, not_null]
+          - name: customer_email
+            tests: [not_null]
+          - name: customer_segment
+            tests:
+                - accepted_values:
+                      arguments:
+                          values: ['standard', 'vip']
+
+    - name: stg_products
+      description: "Catalogue produit, renomme/standardise depuis raw.products."
+      columns:
+          - name: product_id
+            tests: [unique, not_null]
+          - name: unit_price
+            tests:
+                - dbt_expectations.expect_column_values_to_be_between:
+                      arguments:
+                          min_value: 0
+          - name: price_tier
+            description: "Segmentation tarifaire derivee de unit_price : budget (<30), mid (<80), premium (>=80)."
+            tests:
+                - not_null
+                - accepted_values:
+                      arguments:
+                          values: ['budget', 'mid', 'premium']
+
+    - name: stg_orders
+      description: "Commandes, renommees/standardisees depuis raw.orders."
+      columns:
+          - name: order_id
+            tests: [unique, not_null]
+          - name: order_status
+            tests:
+                - accepted_values:
+                      arguments:
+                          values: ['placed', 'shipped', 'completed', 'returned', 'cancelled']
+          - name: customer_id
+            tests:
+                - relationships:
+                      arguments:
+                          to: ref('stg_customers')
+                          field: customer_id
+
+    - name: stg_order_items
+      description: "Lignes de commande, renommees/standardisees depuis raw.order_items."
+      columns:
+          - name: order_item_id
+            tests: [unique, not_null]
+          - name: quantity
+            tests:
+                - dbt_expectations.expect_column_values_to_be_between:
+                      arguments:
+                          min_value: 1
+          - name: line_amount_cents
+            tests:
+                - dbt_expectations.expect_column_values_to_be_between:
+                      arguments:
+                          min_value: 0
+
+    - name: stg_returns
+      description: "Retours produits, rattaches a une ligne de commande (module 12 - capstone)."
+      columns:
+          - name: return_id
+            tests: [unique, not_null]
+          - name: order_item_id
+            tests:
+                - relationships:
+                      arguments:
+                          to: ref('stg_order_items')
+                          field: order_item_id
+          - name: refund_amount_cents
+            tests:
+                - not_negative
+          - name: reason
+            tests:
+                - accepted_values:
+                      arguments:
+                          values: ['damaged', 'wrong_item', 'no_longer_needed', 'defective']
+
+    - name: stg_payments
+      description: "Paiements, renommes/standardises depuis raw.payments."
+      columns:
+          - name: payment_id
+            tests: [unique, not_null]
+          - name: payment_method
+            tests:
+                - accepted_values:
+                      arguments:
+                          values: ['credit_card', 'paypal', 'bank_transfer', 'gift_card']
+          - name: payment_status
+            tests:
+                - accepted_values:
+                      arguments:
+                          values: ['success', 'failed', 'refunded']
