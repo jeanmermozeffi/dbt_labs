@@ -1,0 +1,36 @@
+name: 'nyc_taxi_dbt'
+version: '1.0.0'
+config-version: 2
+
+profile: 'nyc_taxi_dbt'
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  nyc_taxi_dbt:
+    +materialized: view
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table
+
+seeds:
+  nyc_taxi_dbt:
+    +column_types:
+      LocationID: integer
+
+# Glob des fichiers parquet "raw" (partitionnement Hive pickup_year=/pickup_month=).
+# Voir bootcamp/02-connecter-des-donnees-reelles pour le pendant "donnees
+# distantes" (read_parquet sur une liste d'URL https, meme mecanisme).
+vars:
+  raw_trips_glob: 'data/raw_parquet/**/*.parquet'

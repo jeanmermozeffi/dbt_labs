@@ -1,0 +1,30 @@
+{{
+    config(
+        materialized='incremental',
+        incremental_strategy='microbatch',
+        event_time='pickup_at',
+        batch_size='month',
+        begin='2019-01-01',
+    )
+}}
+
+select
+    vendor_id,
+    pickup_at,
+    dropoff_at,
+    passenger_count,
+    trip_distance,
+    rate_code_id,
+    store_and_fwd_flag,
+    pickup_location_id,
+    dropoff_location_id,
+    payment_type,
+    fare_amount,
+    extra,
+    mta_tax,
+    tip_amount,
+    tolls_amount,
+    improvement_surcharge,
+    congestion_surcharge,
+    total_amount
+from {{ ref('stg_trips') }}

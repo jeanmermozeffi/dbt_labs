@@ -1,0 +1,16 @@
+# Profil "co-localise" dans le projet (et non dans ~/.dbt/), commite
+# dans git : sans danger ici, DuckDB est un fichier local, zero secret.
+# Utilise par le conteneur Airflow (DBT_PROFILES_DIR pointe ici).
+# En dev sur votre machine, vous pouvez continuer a utiliser
+# ~/.dbt/profiles.yml (voir profiles.yml.example) -- dbt cherche
+# d'abord --profiles-dir / DBT_PROFILES_DIR, sinon ~/.dbt/.
+
+nyc_taxi_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: 'nyc_taxi.duckdb'
+      threads: 8
+      extensions:
+        - httpfs

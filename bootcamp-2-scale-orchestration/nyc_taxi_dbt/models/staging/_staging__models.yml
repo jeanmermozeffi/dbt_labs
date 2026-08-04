@@ -1,0 +1,34 @@
+version: 2
+
+models:
+  - name: stg_trips
+    description: >
+      Trajets renommes/types depuis la source externe
+      nyc_tlc.yellow_tripdata (parquet, partitionnement Hive).
+      `event_time: pickup_at` (voir config() en tete du fichier) :
+      indispensable pour que fct_trips (microbatch) puisse filtrer
+      cette source par lot temporel plutot que de la scanner en
+      entier a chaque batch.
+    columns:
+      - name: pickup_at
+        tests: [not_null]
+      - name: pickup_location_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('stg_zones')
+                field: location_id
+      - name: payment_type
+        tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4]
+      - name: fare_amount
+        tests:
+          - not_negative
+
+  - name: stg_zones
+    description: "Referentiel des zones (seed), renomme."
+    columns:
+      - name: location_id
+        tests: [unique, not_null]

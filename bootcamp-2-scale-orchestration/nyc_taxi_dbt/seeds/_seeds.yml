@@ -1,0 +1,16 @@
+version: 2
+
+seeds:
+  - name: taxi_zone_lookup
+    description: >
+      Referentiel des zones. Structure inspiree du vrai fichier public
+      NYC TLC taxi_zone_lookup.csv ; donnees ICI generees (illustratives,
+      pas le vrai referentiel officiel -- voir scripts/generate_synthetic_trips.py).
+    columns:
+      - name: LocationID
+        tests: [unique, not_null]
+      - name: Borough
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['Manhattan', 'Brooklyn', 'Queens', 'Bronx', 'Staten Island']

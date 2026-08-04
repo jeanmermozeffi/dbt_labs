@@ -1,0 +1,14 @@
+version: 2
+
+sources:
+  - name: nyc_tlc
+    description: >
+      Trajets taxi "yellow cab", au schema des vrais fichiers publics
+      NYC TLC. Ici, generes localement (voir scripts/generate_synthetic_trips.py)
+      pour un bootcamp reproductible sans dependance reseau ; en
+      production, `external_location` pointerait directement vers les
+      vrais fichiers (locaux ou distants, voir module 02).
+    meta:
+      external_location: "read_parquet('{{ var('raw_trips_glob') }}', hive_partitioning=true, union_by_name=true)"
+    tables:
+      - name: yellow_tripdata

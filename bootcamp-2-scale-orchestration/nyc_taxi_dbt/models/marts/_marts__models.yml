@@ -1,0 +1,26 @@
+version: 2
+
+models:
+  - name: fct_trips
+    description: >
+      Table de faits, grain = 1 ligne par trajet. Incrementale
+      (strategie microbatch, event_time=pickup_at, batch_size=month,
+      begin=2019-01-01). Voir bootcamp-2.../03-incremental-a-lechelle.
+    columns:
+      - name: vendor_id
+        tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2]
+      - name: pickup_location_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('stg_zones')
+                field: location_id
+      - name: fare_amount
+        tests:
+          - not_negative
+      - name: total_amount
+        tests:
+          - not_negative

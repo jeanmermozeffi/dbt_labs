@@ -1,0 +1,115 @@
+x-airflow-common:
+  &airflow-common
+  build: .
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+    AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
+    # Defaut Airflow = 30s. Cosmos invoque `dbt deps`/`dbt ls` en
+    # sous-processus pour construire le DAG (LoadMode.DBT_LS) et son
+    # calcul de cache scanne tout le dossier du projet -- ici gonfle
+    # par data/ (~750 Mo de parquet) et .venv/. Sans cette hausse, le
+    # dag-processor tue le parsing en cours de route et le DAG
+    # n'apparait jamais (0 DAGs, 0 erreurs visibles). Voir module 06.
+    AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT: '300'
+    # Airflow >= 3.0 : les taches (executees par le scheduler en
+    # LocalExecutor) ne parlent plus DIRECTEMENT a la base de
+    # metadonnees -- elles passent par la "Task Execution API",
+    # servie par le conteneur api-server. Sans cette URL explicite,
+    # chaque tache tente `http://localhost:...` (le scheduler lui-
+    # meme, ou rien n'ecoute) et echoue avec
+    # `httpx.ConnectError: [Errno 111] Connection refused`.
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
+    # Le scheduler (qui lance les taches) et l'api-server (qui recoit
+    # leurs appels) doivent signer/verifier avec la MEME cle JWT. Sans
+    # valeur explicite, chaque conteneur en genere une aleatoire a son
+    # demarrage -> `Invalid auth token: Signature verification failed`
+    # des la premiere tache (rencontre en construisant ce bootcamp).
+    #
+    # La cle vient de l'environnement, jamais du fichier : une cle en
+    # dur dans un compose commite est un secret publie (ce depot est
+    # public). Generez la votre une fois pour toutes :
+    #   echo "AIRFLOW_JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> .env
+    # Le fallback ci-dessous ne sert qu'a faire demarrer la stack en
+    # local si vous avez saute cette etape -- ne l'utilisez jamais
+    # ailleurs que sur votre machine.
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:-local-dev-only-change-me}
+    # Consommes par le DAG (dags/nyc_taxi_dbt_dag.py) via Cosmos
+    DBT_PROJECT_DIR: /opt/airflow/nyc_taxi_dbt
+    DBT_PROFILES_DIR: /opt/airflow/nyc_taxi_dbt
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ../nyc_taxi_dbt:/opt/airflow/nyc_taxi_dbt
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: nyc_taxi_airflow_postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Port distinct de celui du premier bootcamp (5432) pour pouvoir
+    # faire tourner les deux stacks Docker en meme temps sans conflit.
+    ports:
+      - "5433:5432"
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: nyc_taxi_airflow_init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow pools set duckdb_pool 1 "DuckDB : un seul ecrivain a la fois sur nyc_taxi.duckdb"
+
+  # Airflow >= 3.0 : le parsing des DAGs est un processus a part
+  # entiere (isolation/securite), distinct du scheduler -- ce n'etait
+  # qu'optionnel en 2.x. Voir bootcamp-2.../05-orchestration-airflow.
+  airflow-dag-processor:
+    <<: *airflow-common
+    container_name: nyc_taxi_airflow_dag_processor
+    command: dag-processor
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # `webserver` (Airflow 2.x) est devenu `api-server` (Airflow 3.x) :
+  # l'ancienne UI Flask a ete remplacee par une UI React consommant
+  # une API FastAPI.
+  airflow-apiserver:
+    <<: *airflow-common
+    container_name: nyc_taxi_airflow_apiserver
+    command: api-server
+    ports:
+      - "8080:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: nyc_taxi_airflow_scheduler
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+volumes:
+  airflow-pg-data:
+    name: nyc-taxi-airflow-pg-data

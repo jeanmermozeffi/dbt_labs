@@ -1,0 +1,16 @@
+# A copier vers ~/.dbt/profiles.yml (fusionner avec le profil dbt_labs
+# existant si vous avez fait le premier bootcamp).
+#
+# DuckDB est un fichier local : pas de host/port/user/password, pas de
+# Docker a lancer. C'est la principale simplification par rapport au
+# profil Postgres du premier bootcamp -- voir bootcamp-2.../00-setup.
+
+nyc_taxi_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: 'nyc_taxi.duckdb'
+      threads: 8
+      extensions:
+        - httpfs
